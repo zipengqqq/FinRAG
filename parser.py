@@ -30,5 +30,5 @@ def parser_financial_report(pdf_path):
     return documents[0].text
 
 if __name__ == "__main__":
-    text = parser_financial_report('data/docs/营业专业用户诉求分析报告.pdf')
-    Path('test/营业报告.txt').write_text(text, encoding='utf-8')
+    text = parser_financial_report('data/docs/营业专业用户诉求分析报告1.pdf')
+    Path('test/营业报告2.txt').write_text(text, encoding='utf-8')
