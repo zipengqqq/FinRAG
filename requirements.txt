@@ -7,3 +7,4 @@ torch==2.9.0
 transformers==4.57.1
 modelscope==1.33.0
 pymilvus==2.6.5
+markitdown[all]==0.1.3
