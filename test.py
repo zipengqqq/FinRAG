@@ -7,7 +7,7 @@ from openai import OpenAI
 
 from chunker import split_md_content
 from decorator.time_consume import time_consume
-from graph import app
+from rag_graph import app
 from retriever import AdvancedRetriever
 from vector_store import add_documents_to_milvus
 
@@ -17,8 +17,8 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(True, False)  # add assertion here
 
     def test1_add(self):
-        text = Path('test/营业报告1.txt').read_text(encoding='utf-8')
-        chunks = split_md_content(text, source_filename='营业报告1.txt', year=2025)
+        text = Path('output/营业报告2.txt').read_text(encoding='utf-8')
+        chunks = split_md_content(text, source_filename='营业报告2.txt', year=2025)
         add_documents_to_milvus(chunks)
 
     def test2_retrive(self):
@@ -53,8 +53,6 @@ class MyTestCase(unittest.TestCase):
     def test_graph(self):
         response = app.invoke({"query": "业务进度有多少条数据？", "year": 2025})
         print(response['answer'])
-
-
 
 if __name__ == '__main__':
     unittest.main()

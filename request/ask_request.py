@@ -1,0 +1,8 @@
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class AskRequest(BaseModel):
+    query: str
+    year: Optional[int] = None

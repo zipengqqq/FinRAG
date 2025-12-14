@@ -64,5 +64,5 @@ def split_md_content(md_text, source_filename, year) -> list:
     return final_splits
 
 if __name__ == "__main__":
-    text = Path('test/营业报告1.txt').read_text(encoding='utf-8')
+    text = Path('output/营业报告1.txt').read_text(encoding='utf-8')
     split_md_content(text, source_filename='营业报告1.txt', year=2025)
