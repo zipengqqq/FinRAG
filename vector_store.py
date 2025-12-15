@@ -1,12 +1,16 @@
 from decorator.time_consume import time_consume
-from model_loader import get_embedding_model
 from langchain_milvus import Milvus
 from pymilvus import connections, utility, FieldSchema, CollectionSchema, DataType, Collection
+import os.path
 
+from langchain_huggingface import HuggingFaceEmbeddings
+from modelscope import snapshot_download
 MILVUS_HOST = '127.0.0.1'
 MILVUS_PORT = '19530'
 COLLECTION_NAME = 'financial_rag'
 DIMENSION = 1024
+EMBEDDING_MODEL_PATH = './models/bge-m3'
+
 
 def init_collection():
     """手动定义 Schema 和 Collection"""
@@ -82,4 +86,20 @@ def add_documents_to_milvus(chunks):
 
     print(f"入库成功，collection：{COLLECTION_NAME}")
 
+def get_embedding_model():
+    """本地没有模型，则会先下载"""
+    # 1) 检测模型是否存在
+    if not os.path.exists(EMBEDDING_MODEL_PATH):
+        print(f"🚀 本地未检测到模型，正在从 ModelScope 下载 BGE-M3...")
+        snapshot_download('Xorbits/bge-m3', cache_dir='./models/bge-m3')
+    else:
+        print("✅ 检测到本地模型，直接加载。")
 
+    # 2) 加载模型
+    real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
+    embeddings = HuggingFaceEmbeddings(
+        model_name=real_model_path,
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'normalize_embeddings': True},
+    )
+    return embeddings
