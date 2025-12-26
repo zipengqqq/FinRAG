@@ -6,7 +6,10 @@ import pymupdf4llm
 from docling.document_converter import DocumentConverter
 from markitdown import MarkItDown
 
+from decorator.time_consume import time_consume
 
+
+@time_consume
 def parse_pdf_docling(pdf_path, output_dir: str = "./output"):
     print(f"🚀 正在使用 Docling 本地解析: {pdf_path} ...")
 
@@ -84,7 +87,7 @@ def pdf_to_markdown(pdf_path: str, output_dir: str = "./output") -> str:
 
 
 if __name__ == "__main__":
-    input_pdf = 'data/docs/年报.pdf'
+    input_pdf = 'data/docs/2022-比亚迪-年报.pdf'
     output_dir = 'data/docs'
     try:
         parse_pdf_docling(input_pdf, output_dir)
