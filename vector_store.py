@@ -2,6 +2,7 @@ from decorator.time_consume import time_consume
 from langchain_milvus import Milvus
 from pymilvus import connections, utility, FieldSchema, CollectionSchema, DataType, Collection
 import os.path
+import torch
 from utils.logger_util import logger
 
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -106,9 +107,10 @@ def get_embedding_model():
 
     # 2) 加载模型
     real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     embeddings = HuggingFaceEmbeddings(
         model_name=real_model_path,
-        model_kwargs={'device': 'cpu'},
+        model_kwargs={'device': device},
         encode_kwargs={'normalize_embeddings': True},
     )
     return embeddings
