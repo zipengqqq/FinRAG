@@ -2,6 +2,7 @@ from decorator.time_consume import time_consume
 from langchain_milvus import Milvus
 from pymilvus import connections, utility, FieldSchema, CollectionSchema, DataType, Collection
 import os.path
+from utils.logger_util import logger
 
 from langchain_huggingface import HuggingFaceEmbeddings
 from modelscope import snapshot_download
@@ -49,7 +50,7 @@ def init_collection():
     # 加载到内存 -- Milvus 的特性，必须 load 才能搜
     collection.load()
 
-    print(f"集合 {COLLECTION_NAME} 创建并加载成功！")
+    logger.info(f"集合 {COLLECTION_NAME} 创建并加载成功！")
     return collection
 
 def get_vector_store():
@@ -69,31 +70,39 @@ def get_vector_store():
 def add_documents_to_milvus(chunks):
     """将切分好的文档存入 Milvus"""
     if not chunks:
-        print(f"块为空，不需要入库")
+        logger.info(f"块为空，不需要入库")
         return
 
+    logger.info(f"开始入库，共有{len(chunks)}个块")
     connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
-
-    # 先确认表存在
     if not utility.has_collection(COLLECTION_NAME):
+        logger.info(f"未检测到集合 {COLLECTION_NAME}，正在初始化")
         init_collection()
-
+    else:
+        logger.info(f"检测到集合 {COLLECTION_NAME}")
     vector_store = get_vector_store()
-
-    # langchain 会自动把 chunks 的 metadata 映射到 schema 里同名的字段
-    # 所以切分的时候，chunks 里的 metadata 必须包含 'source' 和 'section' 字段
-    vector_store.add_documents(chunks)
-
-    print(f"入库成功，collection：{COLLECTION_NAME}")
+    batch_size = 256
+    total = len(chunks)
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        logger.info(f"正在入库第{start}-{end}条")
+        batch = chunks[start:end]
+        try:
+            vector_store.add_documents(batch)
+            logger.info(f"入库完成第{start}-{end}条")
+        except Exception as e:
+            logger.error(f"入库失败第{start}-{end}条: {e}")
+            raise
+    logger.info(f"入库成功，collection：{COLLECTION_NAME}")
 
 def get_embedding_model():
     """本地没有模型，则会先下载"""
     # 1) 检测模型是否存在
     if not os.path.exists(EMBEDDING_MODEL_PATH):
-        print(f"🚀 本地未检测到模型，正在从 ModelScope 下载 BGE-M3...")
+        logger.info(f"🚀 本地未检测到模型，正在从 ModelScope 下载 BGE-M3...")
         snapshot_download('Xorbits/bge-m3', cache_dir='./models/bge-m3')
     else:
-        print("✅ 检测到本地模型，直接加载。")
+        logger.info("✅ 检测到本地模型，直接加载。")
 
     # 2) 加载模型
     real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
@@ -103,3 +112,32 @@ def get_embedding_model():
         encode_kwargs={'normalize_embeddings': True},
     )
     return embeddings
+
+
+def clear_financial_rag(recreate: bool = True):
+    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    if utility.has_collection(COLLECTION_NAME):
+        logger.info(f"正在删除集合 {COLLECTION_NAME} 的所有数据（drop collection）")
+        utility.drop_collection(COLLECTION_NAME)
+        logger.info(f"集合 {COLLECTION_NAME} 已删除")
+    else:
+        logger.info(f"集合 {COLLECTION_NAME} 不存在，无需删除")
+    if recreate:
+        logger.info(f"正在重新创建空集合 {COLLECTION_NAME}")
+        init_collection()
+
+
+def drop_all_collections():
+    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    names = utility.list_collections()
+    if not names:
+        logger.info("当前无集合可删除")
+        return
+    logger.info(f"即将删除所有集合：{names}")
+    for name in names:
+        try:
+            utility.drop_collection(name)
+            logger.info(f"集合 {name} 已删除")
+        except Exception as e:
+            logger.error(f"删除集合 {name} 失败: {e}")
+            raise

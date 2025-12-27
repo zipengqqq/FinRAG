@@ -1,4 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
+    const API_BASE = 'http://127.0.0.1:8288';
     // Tab Switching Logic
     const navItems = document.querySelectorAll('.nav-item');
     const sections = document.querySelectorAll('.view-section');
@@ -81,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
-    function handleSend() {
+    async function handleSend() {
         const text = chatInput.value.trim();
         if (!text) return;
         
@@ -89,10 +90,18 @@ document.addEventListener('DOMContentLoaded', () => {
         chatInput.value = '';
         chatInput.style.height = '24px';
         
-        // Mock Response
-        setTimeout(() => {
-            addMessage('这是一个演示回复，展示高端极简的 UI 风格。', 'bot', 'AI 助手 · 2秒前');
-        }, 600);
+        try {
+            const res = await fetch(`${API_BASE}/assistant`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: text })
+            });
+            const data = await res.json();
+            const reply = data && data.data ? data.data : '无响应';
+            addMessage(reply, 'bot', 'AI 助手');
+        } catch (err) {
+            addMessage('服务调用失败，请稍后重试。', 'bot', '错误');
+        }
     }
 
     sendBtn.addEventListener('click', handleSend);

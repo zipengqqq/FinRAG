@@ -40,7 +40,7 @@ class AgentState(TypedDict):
 
 # 节点 1 -- 检索员
 def retrieve_node(state: AgentState):
-    print(f"\n正在检索数据")
+    logger.info(f"\n正在检索数据")
     query = state['query']
     year = state['year']
     docs = retriever.search(query, year=year)

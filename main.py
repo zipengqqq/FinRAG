@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
 
 from chunker import split_md_content
 from rag_graph import app as graph_workflow, retriever as graph_retriever
@@ -10,9 +11,17 @@ from request.search_request import SearchRequest
 from vector_store import add_documents_to_milvus
 
 app = FastAPI(title="FinRAG API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.post("/ask", summary="RAG调用")
-async def ask(req: AskRequest):
+
+@app.post("/assistant", summary="RAG调用")
+async def assistant(req: AskRequest):
     state = {"query": req.query, "year": req.year}
     result = graph_workflow.invoke(state)
     return JSONResponse(status_code=200, content={'data': result.get('answer'), 'message': 'success'})

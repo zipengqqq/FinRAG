@@ -1,4 +1,5 @@
 from pathlib import Path
+from utils.logger_util import logger
 
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 
@@ -28,7 +29,7 @@ def split_md_content(md_text, source_filename, year) -> list:
     # 结果是一个 Document 列表，每个 Document 的 metadata 里面会包含 {'Header 1': '...', 'Header 2': '...'}
     md_header_splits = md_splitter.split_text(md_text)
 
-    print(f"基于标题切分后，共有{len(md_header_splits)}个块")
+    logger.info(f"基于标题切分后，共有{len(md_header_splits)}个块")
 
     # 2) 基于字符长度递归切分（防止某个块内容太长）
     chunk_size = 500 # 每个块大约 500字符
@@ -59,7 +60,7 @@ def split_md_content(md_text, source_filename, year) -> list:
         final_splits.append(doc)
 
 
-    print(f"递归切分后，共有{len(final_splits)}个块")
+    logger.info(f"递归切分后，共有{len(final_splits)}个块")
 
     return final_splits
 
