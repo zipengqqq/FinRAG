@@ -19,6 +19,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("")
+
 
 @app.post("/assistant", summary="RAG调用")
 async def assistant(req: AskRequest):

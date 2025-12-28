@@ -1,12 +1,7 @@
-from decorator.time_consume import time_consume
-from langchain_milvus import Milvus
-from pymilvus import connections, utility, FieldSchema, CollectionSchema, DataType, Collection
 import os.path
-import torch
-from utils.logger_util import logger
 
-from langchain_huggingface import HuggingFaceEmbeddings
-from modelscope import snapshot_download
+import torch
+
 MILVUS_HOST = '127.0.0.1'
 MILVUS_PORT = '19530'
 COLLECTION_NAME = 'financial_rag'
@@ -14,132 +9,155 @@ DIMENSION = 1024
 EMBEDDING_MODEL_PATH = './models/bge-m3'
 
 
+from pymilvus import (
+    connections,
+    utility,
+    FieldSchema,
+    CollectionSchema,
+    DataType,
+    Collection
+)
+
+from langchain_milvus import Milvus
+from langchain_huggingface import HuggingFaceEmbeddings
+from modelscope import snapshot_download
+
+from decorator.time_consume import time_consume
+from utils.logger_util import logger
+
+MILVUS_HOST = '127.0.0.1'
+MILVUS_PORT = '19530'
+COLLECTION_NAME = 'financial_rag'
+DIMENSION = 1024
+EMBEDDING_MODEL_PATH = './models/bge-m3'
+
+# Embedding 单例
+_embedding_model = None
+
+def get_embedding_model():
+    """Embedding 模型单例（只加载一次）"""
+    global _embedding_model
+    if _embedding_model is not None:
+        return _embedding_model
+
+    if not os.path.exists(EMBEDDING_MODEL_PATH):
+        logger.info("🚀 本地未检测到模型，开始下载 bge-m3")
+        snapshot_download('Xorbits/bge-m3', cache_dir=EMBEDDING_MODEL_PATH)
+
+    real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    _embedding_model = HuggingFaceEmbeddings(
+        model_name=real_model_path,
+        model_kwargs={'device': device},
+        encode_kwargs={'normalize_embeddings': True},  # 对应 IP
+    )
+    logger.info("✅ Embedding 模型加载完成")
+    return _embedding_model
+
+
 def init_collection():
-    """手动定义 Schema 和 Collection"""
-    # 数据库连接
+    """Collection 初始化（不建索引）"""
     connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
 
-    # 定义字段
     fields = [
-        # 主键 ID，自动增长
         FieldSchema(name='pk', dtype=DataType.INT64, is_primary=True, auto_id=True),
-        # 文本内容
         FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=65535),
-        # 向量字段（核心）
         FieldSchema(name='vector', dtype=DataType.FLOAT_VECTOR, dim=DIMENSION),
-        # -- 下面是元数据字段，用于过滤 --
         FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=200),
-        # 年份
         FieldSchema(name='year', dtype=DataType.INT16),
-        # 章节标题
         FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=200),
     ]
 
-    schema = CollectionSchema(fields, description="金融财报知识库")
+    schema = CollectionSchema(fields, description="金融财报 RAG 知识库")
 
-    # 创建集合
-    collection = Collection(name=COLLECTION_NAME, schema=schema)
+    collection = Collection(
+        name=COLLECTION_NAME,
+        schema=schema
+    )
 
-    # 创建索引 -- 必须做，否则无法实现搜索
-    index_params = {
-        'metric_type': 'L2', # 欧式距离
-        'index_type': 'HNSW', # HNSW 是目前最快的向量索引算法之一
-        'params': {'M': 8, 'efConstruction': 64}
-    }
-    collection.create_index(field_name='vector', index_params=index_params)
-
-    # 加载到内存 -- Milvus 的特性，必须 load 才能搜
-    collection.load()
-
-    logger.info(f"集合 {COLLECTION_NAME} 创建并加载成功！")
+    logger.info(f"✅ Collection {COLLECTION_NAME} 创建完成（未建HNSW索引）")
     return collection
 
+
 def get_vector_store():
-    """获取 milvus 向量数据库实例"""
-    embedding_model = get_embedding_model()
-    vector_store = Milvus(
-        embedding_function=embedding_model,
+    """获取 VectorStore"""
+    embedding = get_embedding_model()
+    return Milvus(
+        embedding_function=embedding,
         collection_name=COLLECTION_NAME,
         connection_args={'host': MILVUS_HOST, 'port': MILVUS_PORT},
-        # --告诉langchain 文本存在 'text'字段，向量存在 'vector' 字段
         text_field='text',
         vector_field='vector',
     )
-    return vector_store
+
 
 @time_consume
-def add_documents_to_milvus(chunks):
-    """将切分好的文档存入 Milvus"""
+def add_documents_to_milvus(chunks, batch_size=256):
+    """文档入库（高速写入）"""
     if not chunks:
-        logger.info(f"块为空，不需要入库")
+        logger.info("⚠️ chunks 为空，跳过")
         return
 
-    logger.info(f"开始入库，共有{len(chunks)}个块")
     connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+
     if not utility.has_collection(COLLECTION_NAME):
-        logger.info(f"未检测到集合 {COLLECTION_NAME}，正在初始化")
         init_collection()
-    else:
-        logger.info(f"检测到集合 {COLLECTION_NAME}")
+
     vector_store = get_vector_store()
-    batch_size = 256
     total = len(chunks)
+
+    logger.info(f"🚀 开始入库，共 {total} 条")
+
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
-        logger.info(f"正在入库第{start}-{end}条")
         batch = chunks[start:end]
-        try:
-            vector_store.add_documents(batch)
-            logger.info(f"入库完成第{start}-{end}条")
-        except Exception as e:
-            logger.error(f"入库失败第{start}-{end}条: {e}")
-            raise
-    logger.info(f"入库成功，collection：{COLLECTION_NAME}")
+        vector_store.add_documents(batch)
+        logger.info(f"✅ 已入库 {start} - {end}")
 
-def get_embedding_model():
-    """本地没有模型，则会先下载"""
-    # 1) 检测模型是否存在
-    if not os.path.exists(EMBEDDING_MODEL_PATH):
-        logger.info(f"🚀 本地未检测到模型，正在从 ModelScope 下载 BGE-M3...")
-        snapshot_download('Xorbits/bge-m3', cache_dir='./models/bge-m3')
-    else:
-        logger.info("✅ 检测到本地模型，直接加载。")
+    logger.info("🎉 所有文档入库完成（未建索引）")
 
-    # 2) 加载模型
-    real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    embeddings = HuggingFaceEmbeddings(
-        model_name=real_model_path,
-        model_kwargs={'device': device},
-        encode_kwargs={'normalize_embeddings': True},
+
+@time_consume
+def build_hnsw_index():
+    """建索引（所有数据完成后执行）"""
+    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    collection = Collection(COLLECTION_NAME)
+
+    # 🔥 关键：先判断 & 删除已有索引
+    if collection.indexes:
+        logger.info("⚠️ 检测到已有索引，先释放后删除")
+        collection.release()
+        collection.drop_index()
+        logger.info("🗑 原有索引已删除")
+
+    logger.info("开始创建 HNSW 索引（一次性）")
+
+    index_params = {
+        "index_type": "HNSW",
+        "metric_type": "IP",  # normalize_embeddings=True
+        "params": {
+            "M": 8,
+            "efConstruction": 64
+        }
+    }
+
+    collection.create_index(
+        field_name="vector",
+        index_params=index_params
     )
-    return embeddings
+
+    collection.load()
+    logger.info("✅ HNSW 索引创建并加载完成")
 
 
-def clear_financial_rag(recreate: bool = True):
+def clear_financial_rag(recreate=True):
+    """清空 & 重建collections"""
     connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+
     if utility.has_collection(COLLECTION_NAME):
-        logger.info(f"正在删除集合 {COLLECTION_NAME} 的所有数据（drop collection）")
         utility.drop_collection(COLLECTION_NAME)
-        logger.info(f"集合 {COLLECTION_NAME} 已删除")
-    else:
-        logger.info(f"集合 {COLLECTION_NAME} 不存在，无需删除")
+        logger.info(f"🗑 Collection {COLLECTION_NAME} 已删除")
+
     if recreate:
-        logger.info(f"正在重新创建空集合 {COLLECTION_NAME}")
         init_collection()
-
-
-def drop_all_collections():
-    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
-    names = utility.list_collections()
-    if not names:
-        logger.info("当前无集合可删除")
-        return
-    logger.info(f"即将删除所有集合：{names}")
-    for name in names:
-        try:
-            utility.drop_collection(name)
-            logger.info(f"集合 {name} 已删除")
-        except Exception as e:
-            logger.error(f"删除集合 {name} 失败: {e}")
-            raise

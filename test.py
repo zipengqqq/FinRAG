@@ -14,7 +14,7 @@ from retriever import AdvancedRetriever
 from utils.db_util import db_manager, create_session
 from utils.id_util import id_worker
 from utils.logger_util import logger
-from vector_store import add_documents_to_milvus, clear_financial_rag
+from vector_store import add_documents_to_milvus, clear_financial_rag, build_hnsw_index, init_collection
 
 
 class MyTestCase(unittest.TestCase):
@@ -130,6 +130,12 @@ class MyTestCase(unittest.TestCase):
     def test_merge(self):
         clear_financial_rag()
         self.test_insert_milus()
+
+        # 所有文件插完后，再建索引
+        build_hnsw_index()
+
+    def test_init(self):
+        init_collection()
 
 
 if __name__ == '__main__':
