@@ -2,12 +2,22 @@ import os
 from typing import TypedDict, List
 
 from dotenv import load_dotenv
+from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from openai import OpenAI
+from langchain_core.runnables import RunnableConfig
 
-from retriever import AdvancedRetriever
+from retriever import retriever
+from utils.logger_util import logger
 
-retriever = AdvancedRetriever()
+load_dotenv()
+llm = ChatOpenAI(
+    model="deepseek-chat",
+    api_key=os.getenv('DEEPSEEK_API_KEY'),
+    base_url=os.getenv('DEEPSEEK_BASE_URL'),
+    temperature=0.7,
+    streaming=True  # 开启流式
+)
 
 user_prompt = """
 用户问题：{query}
@@ -24,12 +34,6 @@ system_prompt = """
 3. 回答时引用关键数据，并说明数据来源。
 4. 保持回答条理清晰，可以使用 Markdown 格式。
 """
-load_dotenv()
-client = OpenAI(
-    api_key=os.getenv('DEEPSEEK_API_KEY'),
-    base_url=os.getenv('DEEPSEEK_BASE_URL')
-)
-
 
 class AgentState(TypedDict):
     query: str  # 用户的问题
@@ -40,7 +44,7 @@ class AgentState(TypedDict):
 
 # 节点 1 -- 检索员
 def retrieve_node(state: AgentState):
-    logger.info(f"\n正在检索数据")
+    logger.info(f"正在检索数据")
     query = state['query']
     year = state['year']
     docs = retriever.search(query, year=year)
@@ -49,21 +53,23 @@ def retrieve_node(state: AgentState):
 
 
 # 节点 2 -- 写作员
-def generate_node(state: AgentState):
-    print(f"\n正在生成回答")
-    query = state['query']
-    documents = state['documents']
-    context_str = "\n\n".join(documents)
-    response = client.chat.completions.create(
-        model='deepseek-chat',
-        messages=[
-            {'role': 'system', 'content': system_prompt},
-            {"role": 'user', 'content': user_prompt.format(query=query, context_str=context_str)}
-        ],
-        stream=False
-    )
-    response_str = response.choices[0].message.content
-    return {"answer": response_str}
+async def generate_node(state: AgentState, config: RunnableConfig):
+    logger.info(f"正在生成回答")
+    context_str = "\n\n".join(state['documents'])
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt.format(
+            query=state['query'],
+            context_str=context_str
+        ))
+    ]
+
+    # 直接调用 ainvoke，LangGraph 会自动挂钩处理流
+    response = await llm.ainvoke(messages, config=config)
+    logger.info("回答生成结束")
+
+    return {"answer": response.content}
 
 # 构建图
 workflow = StateGraph(AgentState)

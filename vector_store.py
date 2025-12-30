@@ -19,7 +19,7 @@ from pymilvus import (
 )
 
 from langchain_milvus import Milvus
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from modelscope import snapshot_download
 
 from decorator.time_consume import time_consume

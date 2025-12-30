@@ -3,17 +3,18 @@ import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from decorator.time_consume import time_consume
+from utils.logger_util import logger
 from vector_store import get_vector_store
 
 RERANKER_MODEL_PATH = (Path(__file__).parent / 'models' / 'bge-reranker-base' / 'Xorbits' / 'bge-reranker-base').as_posix()
 
 class AdvancedRetriever:
     def __init__(self):
-        print(f"正在加载 Reranker 模型")
+        logger.info(f"🚀正在加载 Reranker 模型")
         self.tokenizer = AutoTokenizer.from_pretrained(RERANKER_MODEL_PATH, use_fast=False)
         self.model = AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL_PATH)
         self.model.eval()
-        print(f"Reranker 加载完成")
+        logger.info(f"✅Reranker 加载完成")
 
     def rerank(self, query, docs, top_k=5):
         """对 Milvus 召回的文档进行精细打分排序"""
@@ -66,12 +67,14 @@ class AdvancedRetriever:
         initial_docs = vector_store.similarity_search(
             query,
             k=20,
-            expr=filter_expr
+            expr=filter_expr,
+            param={"metric_type": "IP", "params": {"ef": 64}}
         )
         final_docs = self.rerank(query, initial_docs, top_k)
 
         return final_docs
 
 
+retriever = AdvancedRetriever()
 
 

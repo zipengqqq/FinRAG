@@ -7,6 +7,7 @@ starlette~=0.47.3
 pydantic~=2.12.4
 openai~=1.109.1
 langchain-text-splitters~=0.3.11
+langchain-community~=0.3.11
 docling~=2.64.1
 langgraph~=1.0.1
 torch~=2.5.1+cu121

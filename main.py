@@ -1,13 +1,15 @@
 from fastapi import FastAPI
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from chunker import split_md_content
 from rag_graph import app as graph_workflow, retriever as graph_retriever
 from request.ask_request import AskRequest
 from request.doc_result import DocResult
+from request.document_request import DocumentRequest
 from request.insert_request import InsertRequest
 from request.search_request import SearchRequest
+from service.service import Service
 from vector_store import add_documents_to_milvus
 
 app = FastAPI(title="FinRAG API")
@@ -19,14 +21,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("")
+service = Service()
+@app.post("/document", summary="文档查询")
+async def document(req: DocumentRequest):
+    service.list(req)
 
 
 @app.post("/assistant", summary="RAG调用")
 async def assistant(req: AskRequest):
-    state = {"query": req.query, "year": req.year}
-    result = graph_workflow.invoke(state)
-    return JSONResponse(status_code=200, content={'data': result.get('answer'), 'message': 'success'})
+    async def event_generator():
+        state = {"query": req.query, "year": req.year}
+
+        # 核心：使用 astream_events (version="v2")
+        # 它可以捕获图内部所有发生的事件，包括 LLM 生成的 token
+        async for event in graph_workflow.astream_events(state, version="v2"):
+
+            # 过滤事件类型：我们只关心 Chat Model 的流式输出
+            if event["event"] == "on_chat_model_stream":
+                # 获取 chunk 内容
+                chunk = event["data"]["chunk"]
+                if hasattr(chunk, "content") and chunk.content:
+                    # 输出 SSE 格式数据
+                    yield f"data: {chunk.content}\n\n"
+
+        # 结束信号
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
 
 @app.post("/insert", summary="文本插入到向量数据库")
 async def ingest(req: InsertRequest):
@@ -51,4 +76,5 @@ async def search(req: SearchRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8288)
+    # uvicorn.run("main:app", host="127.0.0.1", port=8288, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=8288)

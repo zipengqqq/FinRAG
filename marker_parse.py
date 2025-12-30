@@ -7,6 +7,9 @@ from marker.models import create_model_dict
 from marker.output import text_from_rendered
 from marker.config.parser import ConfigParser
 
+from utils.logger_util import logger
+
+
 def _set_cn_env(cache_dir: str, use_gpu: bool):
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     os.environ.setdefault("HF_HOME", cache_dir)
@@ -27,14 +30,14 @@ def _set_cn_env(cache_dir: str, use_gpu: bool):
 
 @time_consume
 def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str | None = None, force_ocr: bool = False, disable_image_extraction: bool = False) -> str:
-    print(f"🚀 正在使用 Marker 解析: {pdf_path} ...")
+    logger.info(f"🚀 正在使用 Marker 解析: {pdf_path} ...")
     cache_dir = str(Path(__file__).parent / ".cache" / "huggingface")
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     _set_cn_env(cache_dir, True)
 
     config = {"output_format": "markdown"}
-    print(f"设备: {os.environ.get('TORCH_DEVICE')}, dtype: {os.environ.get('MODEL_DTYPE')}")
+    logger.info(f"设备: {os.environ.get('TORCH_DEVICE')}, dtype: {os.environ.get('MODEL_DTYPE')}")
     if page_range:
         config["page_range"] = page_range
     if force_ocr:
@@ -56,7 +59,7 @@ def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str 
     text, _, images = text_from_rendered(rendered)
     out_path = Path(output_dir) / (Path(pdf_path).stem + ".md")
     Path(out_path).write_text(text, encoding="utf-8")
-    print(f"✅ 转换完成: {out_path}")
+    logger.info(f"✅ 转换完成: {out_path}")
     return str(out_path)
 
 if __name__ == "__main__":
