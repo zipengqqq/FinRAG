@@ -20,3 +20,7 @@ class FileModel(Base):
         columns = [col.name for col in self.__table__.columns]
         attrs = ', '.join(f"{col}={repr(getattr(self, col))}" for col in columns)
         return f"<{self.__class__.__name__}({attrs})>"
+
+    def to_dict(self):
+        columns = [col.name for col in self.__table__.columns]
+        return {col: getattr(self, col) for col in columns}
