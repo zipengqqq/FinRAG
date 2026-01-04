@@ -45,10 +45,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function addMessage(text, role = 'user', meta = '') {
-        // Transition from initial state if needed
         if (chatContainer.classList.contains('is-initial')) {
             chatContainer.classList.remove('is-initial');
-            // Allow transition to happen before scrolling
             setTimeout(() => {
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }, 50);
@@ -56,19 +54,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const msgDiv = document.createElement('div');
         msgDiv.className = `message ${role}`;
-        
+
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
-        // Simple SVG Icons for Avatars
-        avatar.innerHTML = role === 'user' 
+        avatar.innerHTML = role === 'user'
             ? `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`
             : `<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1v-1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/></svg>`;
 
         const content = document.createElement('div');
         content.className = 'message-content';
-        content.textContent = text;
+
+        const textEl = document.createElement('div');
+        textEl.className = 'message-text';
+        textEl.textContent = text || '';
+        content.appendChild(textEl);
         
-        // Add meta/refs if bot
         if (role === 'bot' && meta) {
             const metaDiv = document.createElement('div');
             metaDiv.className = 'message-meta';
@@ -80,6 +80,8 @@ document.addEventListener('DOMContentLoaded', () => {
         msgDiv.appendChild(content);
         messagesContainer.appendChild(msgDiv);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+        return textEl;
     }
 
     async function handleSend() {
@@ -90,17 +92,56 @@ document.addEventListener('DOMContentLoaded', () => {
         chatInput.value = '';
         chatInput.style.height = '24px';
         
+        const botTextEl = addMessage('', 'bot', 'AI 助手');
+        
         try {
             const res = await fetch(`${API_BASE}/assistant`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/event-stream'
+                },
                 body: JSON.stringify({ query: text })
             });
-            const data = await res.json();
-            const reply = data && data.data ? data.data : '无响应';
-            addMessage(reply, 'bot', 'AI 助手');
+
+            if (!res.ok || !res.body) {
+                throw new Error('网络错误');
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let buffer = '';
+            let finished = false;
+            const boundaryRegex = /\r?\n\r?\n/;
+
+            while (!finished) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let match;
+                while ((match = boundaryRegex.exec(buffer)) !== null) {
+                    const sseChunk = buffer.slice(0, match.index);
+                    buffer = buffer.slice(match.index + match[0].length);
+
+                    const lines = sseChunk.split(/\r?\n/);
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            const data = line.slice(5).trim();
+                            if (data === '[DONE]') {
+                                finished = true;
+                                break;
+                            } else {
+                                botTextEl.textContent += data;
+                                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                            }
+                        }
+                    }
+                }
+            }
         } catch (err) {
-            addMessage('服务调用失败，请稍后重试。', 'bot', '错误');
+            botTextEl.textContent = '服务调用失败，请稍后重试。';
         }
     }
 

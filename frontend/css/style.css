@@ -337,6 +337,7 @@ body {
     font-size: 15px;
     line-height: 1.6;
     color: var(--text-primary);
+    white-space: pre-wrap;
 }
 
 .message.user .message-content {

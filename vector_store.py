@@ -2,7 +2,7 @@ import os.path
 
 import torch
 
-MILVUS_HOST = '127.0.0.1'
+MILVUS_HOST = '101.33.236.84'
 MILVUS_PORT = '19530'
 COLLECTION_NAME = 'financial_rag'
 DIMENSION = 1024
@@ -25,11 +25,6 @@ from modelscope import snapshot_download
 from decorator.time_consume import time_consume
 from utils.logger_util import logger
 
-MILVUS_HOST = '127.0.0.1'
-MILVUS_PORT = '19530'
-COLLECTION_NAME = 'financial_rag'
-DIMENSION = 1024
-EMBEDDING_MODEL_PATH = './models/bge-m3'
 
 # Embedding 单例
 _embedding_model = None
@@ -83,10 +78,14 @@ def init_collection():
 def get_vector_store():
     """获取 VectorStore"""
     embedding = get_embedding_model()
+
+    # 使用 uri 方式连接远程 Milvus
+    uri = f"http://{MILVUS_HOST}:{MILVUS_PORT}"
+
     return Milvus(
         embedding_function=embedding,
         collection_name=COLLECTION_NAME,
-        connection_args={'host': MILVUS_HOST, 'port': MILVUS_PORT},
+        connection_args={"uri": uri},  # ✅ 正确方式
         text_field='text',
         vector_field='vector',
     )
