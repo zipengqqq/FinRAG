@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-
+from utils.logger_util import logger
 from chunker import split_md_content
 from rag_graph import app as graph_workflow, retriever as graph_retriever
 from request.ask_request import AskRequest
@@ -34,6 +34,7 @@ async def assistant(req: AskRequest):
 
         # 核心：使用 astream_events (version="v2")
         # 它可以捕获图内部所有发生的事件，包括 LLM 生成的 token
+        collectd_messages = []
         async for event in graph_workflow.astream_events(state, version="v2"):
 
             # 过滤事件类型：我们只关心 Chat Model 的流式输出
@@ -42,7 +43,9 @@ async def assistant(req: AskRequest):
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "content") and chunk.content:
                     # 输出 SSE 格式数据
+                    collectd_messages.append(chunk.content)
                     yield f"data: {chunk.content}\n\n"
+        logger.info(f"问题：{req.query}\nLLM响应内容：{''.join(collectd_messages)}")
 
         # 结束信号
         yield "data: [DONE]\n\n"
