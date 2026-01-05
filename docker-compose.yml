@@ -51,14 +51,3 @@ services:
     depends_on:
       - "etcd"
       - "minio"
-
-  # 可视化界面 (强烈推荐)
-  attu:
-    container_name: attu
-    image: zilliz/attu:v2.3.4
-    environment:
-      MILVUS_URL: standalone:19530
-    ports:
-      - "8000:3000"
-    depends_on:
-      - "standalone"
