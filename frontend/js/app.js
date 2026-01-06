@@ -529,7 +529,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const res = await fetch(`${API_BASE}/file_download`, {
                 method: 'POST',
                 mode: 'cors',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/octet-stream' },
                 body: JSON.stringify({ file_id: String(fileId) })
             });
             if (!res.ok) return;
