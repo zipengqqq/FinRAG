@@ -106,15 +106,78 @@ document.addEventListener('DOMContentLoaded', () => {
         return html;
     }
 
-    function renderMarkdown(md) {
-        if (typeof window !== 'undefined' && window.marked) {
-            if (typeof window.marked.setOptions === 'function') {
-                window.marked.setOptions({
-                    breaks: true
-                });
+    function convertPipeTables(md) {
+        const lines = md.split(/\r?\n/);
+        const out = [];
+        const cellsOf = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(s => s.trim());
+        const alignType = (s) => {
+            if (/^:\-+:$/.test(s)) return 'center';
+            if (/^:\-+$/.test(s)) return 'left';
+            if (/^\-+:$/.test(s)) return 'right';
+            return 'left';
+        };
+        const formatInlineLite = (t) => {
+            let x = t;
+            x = x.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            x = x.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            return x;
+        };
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^\s*\|/.test(line) && i + 1 < lines.length) {
+                const alignLine = lines[i + 1];
+                if (/^\s*\|(?:\s*:?-{1,}\s*\|)+\s*$/.test(alignLine)) {
+                    const headers = cellsOf(line);
+                    const aligns = cellsOf(alignLine).map(alignType);
+                    let html = '<table><thead><tr>';
+                    headers.forEach((h, idx) => {
+                        html += `<th style="text-align:${aligns[idx] || 'left'}">${formatInlineLite(h)}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+                    i += 2;
+                    while (i < lines.length && /^\s*\|/.test(lines[i])) {
+                        const row = cellsOf(lines[i]);
+                        html += '<tr>';
+                        row.forEach((c, idx) => {
+                            html += `<td style="text-align:${aligns[idx] || 'left'}">${formatInlineLite(c)}</td>`;
+                        });
+                        html += '</tr>';
+                        i++;
+                    }
+                    html += '</tbody></table>';
+                    out.push(html);
+                    i--;
+                    continue;
+                }
             }
-            const renderer = typeof window.marked.parse === 'function' ? window.marked.parse : window.marked;
-            return renderer(md);
+            out.push(line);
+        }
+        return out.join('\n');
+    }
+
+    function renderMarkdown(md) {
+        md = convertPipeTables(md);
+        if (typeof window !== 'undefined' && window.marked) {
+            try {
+                if (typeof window.marked.setOptions === 'function') {
+                    window.marked.setOptions({
+                        breaks: true,
+                        gfm: true
+                    });
+                }
+                let html;
+                if (typeof window.marked.parse === 'function') {
+                    html = window.marked.parse(md);
+                } else if (typeof window.marked === 'function') {
+                    html = window.marked(md);
+                }
+                if (html != null && typeof window !== 'undefined' && window.DOMPurify) {
+                    return window.DOMPurify.sanitize(html);
+                }
+                if (html != null) return html;
+            } catch (e) {
+                console.error('Markdown parsing error:', e);
+            }
         }
 
         const lines = md.split(/\r?\n/);
@@ -154,6 +217,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     inOl = true;
                 }
                 blocks.push('<li>' + formatInlineMarkdown(match[2]) + '</li>');
+            } else if (/^<\w+/.test(trimmed)) {
+                closeLists();
+                blocks.push(trimmed);
             } else {
                 closeLists();
                 blocks.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
@@ -161,7 +227,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         closeLists();
-        return blocks.join('');
+        const html = blocks.join('');
+        if (typeof window !== 'undefined' && window.DOMPurify) {
+            return window.DOMPurify.sanitize(html);
+        }
+        return html;
     }
 
     async function handleSend() {
@@ -214,8 +284,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const lines = sseChunk.split(/\r?\n/);
                     for (const line of lines) {
                         if (line.startsWith('data:')) {
-                            const data = line.slice(5).trim();
-                            if (data === '[DONE]') {
+                            const raw = line.slice(5);
+                            if (raw.trim() === '[DONE]') {
                                 finished = true;
                                 break;
                             } else {
@@ -225,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         typingEl.style.display = 'none';
                                     }
                                 }
-                                markdownBuffer += data;
+                                markdownBuffer += raw;
                                 botTextEl.innerHTML = renderMarkdown(markdownBuffer);
                                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
                             }
@@ -318,16 +388,53 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await res.json();
             const list = Array.isArray(result.data) ? result.data : [];
             queueData = list.map(item => ({
+                id: item.id,
                 name: item.file_name,
                 status: mapStatus(item.status),
                 type: mapType(item.type),
                 size: formatSize(item.size),
-                date: item.create_time || '-'
+                date: item.create_time || '-',
+                minio_url: item.minio_url || ''
             }));
             renderQueue();
         } catch (e) {
             queueBody.innerHTML = `<tr><td colspan="6" class="empty-state">加载数据失败</td></tr>`;
         }
+    }
+
+    async function previewFile(fileId) {
+        try {
+            const res = await fetch(`${API_BASE}/file_preview?file_id=${encodeURIComponent(String(fileId))}`, {
+                method: 'GET',
+                mode: 'cors'
+            });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (_) {}
+    }
+
+    async function downloadFile(fileId, fileName) {
+        try {
+            const res = await fetch(`${API_BASE}/file_download`, {
+                method: 'POST',
+                mode: 'cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_id: String(fileId) })
+            });
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.href = url;
+            link.download = fileName || 'download';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (_) {}
     }
 
     function renderQueue() {
@@ -355,18 +462,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${item.date}</td>
                 <td>
                     <div class="actions-cell">
-                        <button class="icon-btn" title="预览">
+                        <button class="icon-btn ${item.minio_url ? '' : 'disabled'}" title="预览" data-action="preview" data-id="${item.id}">
                             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                         </button>
-                        <button class="icon-btn" title="下载">
+                        <button class="icon-btn ${item.minio_url ? '' : 'disabled'}" title="下载" data-action="download" data-id="${item.id}" data-name="${item.name}">
                             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </button>
                     </div>
                 </td>
             `;
             queueBody.appendChild(tr);
+
         });
     }
+
+    queueBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn || btn.classList.contains('disabled')) return;
+        const id = btn.dataset.id;
+        const name = btn.dataset.name;
+        if (btn.dataset.action === 'preview') {
+            previewFile(id);
+        } else if (btn.dataset.action === 'download') {
+            downloadFile(id, name);
+        }
+    });
 
     function getSimpleStatus(s) {
         if (s === 'success') return 'success';
