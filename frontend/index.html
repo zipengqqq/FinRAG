@@ -79,6 +79,15 @@
                         <button class="filter-btn" data-filter="processing">处理中</button>
                         <button class="filter-btn" data-filter="success">已收录</button>
                         <button class="filter-btn" data-filter="failed">失败</button>
+                        <button id="uploadPdfBtn" class="upload-btn" title="上传PDF">
+                            <svg class="icon" viewBox="0 0 24 24">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 5 17 10"/>
+                                <line x1="12" y1="5" x2="12" y2="17"/>
+                            </svg>
+                            上传PDF
+                        </button>
+                        <input id="uploadPdfInput" type="file" accept="application/pdf" style="display:none">
                     </div>
                 </div>
 
@@ -102,6 +111,24 @@
             </section>
         </div>
     </main>
+    <div id="uploadModal" class="modal-overlay" style="display:none">
+        <div class="modal">
+            <div class="modal-header">
+                <svg class="icon" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+                上传成功
+            </div>
+            <div class="modal-body">
+                文件已上传，后台正在解析。新文件将显示在“全部”列表中。
+            </div>
+            <div class="modal-actions">
+                <button id="modalConfirmBtn" class="modal-btn primary">我知道了</button>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="js/app.js"></script>

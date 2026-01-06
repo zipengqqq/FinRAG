@@ -66,7 +66,7 @@ async def file_preview(req: FilePreviewRequest):
 @app.post("/assistant", summary="RAG调用")
 async def assistant(req: AskRequest):
     async def event_generator():
-        state = {"query": req.query, "year": req.year}
+        state = {"query": req.query, "year": ''}
 
         # 核心：使用 astream_events (version="v2")
         # 它可以捕获图内部所有发生的事件，包括 LLM 生成的 token

@@ -329,10 +329,83 @@ document.addEventListener('DOMContentLoaded', () => {
     const queueBody = document.getElementById('queueBody');
     const queueSearch = document.getElementById('queueSearch');
     const filterBtns = document.querySelectorAll('.filter-btn');
+    const uploadPdfBtn = document.getElementById('uploadPdfBtn');
+    const uploadPdfInput = document.getElementById('uploadPdfInput');
+    const uploadModal = document.getElementById('uploadModal');
+    const modalConfirmBtn = document.getElementById('modalConfirmBtn');
     
     let queueData = [];
     let currentFilter = 'all';
 
+    if (modalConfirmBtn && uploadModal) {
+        modalConfirmBtn.addEventListener('click', () => {
+            uploadModal.style.display = 'none';
+        });
+        uploadModal.addEventListener('click', (e) => {
+            if (e.target === uploadModal) {
+                uploadModal.style.display = 'none';
+            }
+        });
+    }
+
+    if (uploadPdfBtn && uploadPdfInput) {
+        uploadPdfBtn.addEventListener('click', () => {
+            uploadPdfInput.click();
+        });
+        uploadPdfInput.addEventListener('change', async () => {
+            const file = uploadPdfInput.files && uploadPdfInput.files[0];
+            uploadPdfInput.value = '';
+            if (!file) return;
+            const isPdf = (file.type === 'application/pdf') || /\.pdf$/i.test(file.name || '');
+            const iconHtml = uploadPdfBtn.querySelector('svg') ? uploadPdfBtn.querySelector('svg').outerHTML : '';
+            const originalHtml = uploadPdfBtn.innerHTML;
+            if (!isPdf) {
+                uploadPdfBtn.disabled = true;
+                uploadPdfBtn.innerHTML = `${iconHtml} 仅支持 PDF`;
+                setTimeout(() => {
+                    uploadPdfBtn.innerHTML = originalHtml;
+                    uploadPdfBtn.disabled = false;
+                }, 1500);
+                return;
+            }
+            try {
+                const form = new FormData();
+                form.append('file', file);
+                uploadPdfBtn.disabled = true;
+                uploadPdfBtn.innerHTML = `${iconHtml} 上传中...`;
+                const res = await fetch(`${API_BASE}/upload_file`, {
+                    method: 'POST',
+                    mode: 'cors',
+                    body: form
+                });
+                if (!res.ok) throw new Error('network error');
+                await res.json();
+                uploadPdfBtn.innerHTML = `${iconHtml} 已上传`;
+                currentFilter = 'all';
+                filterBtns.forEach(b => b.classList.remove('active'));
+                const allBtn = Array.from(filterBtns).find(b => b.dataset.filter === 'all');
+                if (allBtn) allBtn.classList.add('active');
+                queueSearch.value = '';
+                fetchQueueData('', currentFilter);
+                setTimeout(() => {
+                    fetchQueueData('', currentFilter);
+                }, 1500);
+                if (uploadModal) {
+                    uploadModal.style.display = 'flex';
+                }
+                setTimeout(() => {
+                    uploadPdfBtn.innerHTML = originalHtml;
+                    uploadPdfBtn.disabled = false;
+                }, 1200);
+            } catch (e) {
+                uploadPdfBtn.innerHTML = `${iconHtml} 上传失败`;
+                setTimeout(() => {
+                    uploadPdfBtn.innerHTML = originalHtml;
+                    uploadPdfBtn.disabled = false;
+                }, 1500);
+            }
+        });
+    }
     function mapStatus(code) {
         if (code === 0) return 'pending';
         if (code === 1) return 'processing';
