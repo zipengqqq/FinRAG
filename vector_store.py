@@ -28,6 +28,8 @@ from utils.logger_util import logger
 
 # Embedding 单例
 _embedding_model = None
+# VectorStore 单例
+_vector_store = None
 
 def get_embedding_model():
     """Embedding 模型单例（只加载一次）"""
@@ -77,18 +79,23 @@ def init_collection():
 
 def get_vector_store():
     """获取 VectorStore"""
+    global _vector_store
+    if _vector_store is not None:
+        return _vector_store
+
     embedding = get_embedding_model()
 
     # 使用 uri 方式连接远程 Milvus
     uri = f"http://{MILVUS_HOST}:{MILVUS_PORT}"
 
-    return Milvus(
+    _vector_store = Milvus(
         embedding_function=embedding,
         collection_name=COLLECTION_NAME,
         connection_args={"uri": uri},  # ✅ 正确方式
         text_field='text',
         vector_field='vector',
     )
+    return _vector_store
 
 
 @time_consume

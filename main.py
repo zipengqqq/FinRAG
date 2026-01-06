@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, UploadFile, File
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,6 +26,13 @@ app.add_middleware(
 )
 
 service = Service()
+
+@app.post("/upload_file", summary="上传文件，文件解析")
+async def upload_file(file: UploadFile = File(..., description='文件')):
+    service.upload_file(file)
+
+
+
 @app.post("/document", summary="文档查询")
 async def document(req: DocumentRequest):
     data = service.list(req)

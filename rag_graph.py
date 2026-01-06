@@ -43,11 +43,11 @@ class AgentState(TypedDict):
 
 
 # 节点 1 -- 检索员
-def retrieve_node(state: AgentState):
+async def retrieve_node(state: AgentState):
     logger.info(f"正在检索数据")
     query = state['query']
     year = state['year']
-    docs = retriever.search(query, year=year)
+    docs = await retriever.search(query, year=year)
 
     return {"documents": [doc.page_content for doc in docs]}
 

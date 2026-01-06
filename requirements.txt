@@ -20,3 +20,4 @@ marker~=2.1.5
 pymilvus~=2.6.5
 langchain-community~=0.3.30
 modelscope~=1.33.0
+python-multipart~=0.0.9

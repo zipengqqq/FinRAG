@@ -1,8 +1,11 @@
+from fastapi import UploadFile
+
 from entity.file_model import FileModel
 from request.document_request import DocumentRequest
 from request.file_download_request import FileDownloadRequest
 from request.file_preview_request import FilePreviewRequest
 from utils.db_util import create_session
+from utils.id_util import id_worker
 from utils.logger_util import logger
 from utils.minio_util import minio_client, BUCKET_NAME
 from starlette.responses import StreamingResponse
@@ -128,3 +131,18 @@ class Service():
             media_type="application/pdf",
             headers={"Content-Disposition": content_disposition}
         )
+
+    def upload_file(self, file: UploadFile):
+        """上传文件，文件解析，并把文件插入到数据库中"""
+        # -1）将文件上传到minio中
+
+        # 0）创建数据库记录
+        id = id_worker.get_id()
+        with create_session() as session:
+            session.query(FileModel)
+
+        # 1）把 PDF 文件使用 marker解析为 markdown
+
+        # 2) 将 md 插入到数据库中
+
+

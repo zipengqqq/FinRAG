@@ -45,7 +45,7 @@ class AdvancedRetriever:
         return final_docs
 
     @time_consume
-    def search(self, query, year=None, source=None, top_k=5):
+    async def search(self, query, year=None, source=None, top_k=5):
         """
             核心检索函数
             1. metadata 过滤
