@@ -121,7 +121,7 @@ def add_documents_to_milvus(chunks, batch_size=256):
         vector_store.add_documents(batch)
         logger.info(f"✅ 已入库 {start} - {end}")
 
-    logger.info("🎉 所有文档入库完成（未建索引）")
+    logger.info("🎉 所有文档入库完成")
 
 
 @time_consume

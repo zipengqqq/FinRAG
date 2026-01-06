@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Depends, UploadFile, File
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from fastapi import FastAPI, UploadFile, File, BackgroundTasks
+from starlette.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from request.file_download_request import FileDownloadRequest
@@ -28,8 +28,18 @@ app.add_middleware(
 service = Service()
 
 @app.post("/upload_file", summary="上传文件，文件解析")
-async def upload_file(file: UploadFile = File(..., description='文件')):
-    service.upload_file(file)
+async def upload_file(
+    file: UploadFile = File(..., description='文件'),
+    background_tasks: BackgroundTasks = None
+):
+    file_content = await file.read()
+    background_tasks.add_task(
+        service.upload_file_async,
+        filename=file.filename,
+        file_content=file_content,
+        content_type=file.content_type
+    )
+    return build_response({"message": "文件上传成功，正在后台处理", "filename": file.filename})
 
 
 
@@ -90,7 +100,7 @@ async def ingest(req: InsertRequest):
 
 @app.post("/search", summary="向量数据库检索")
 async def search(req: SearchRequest):
-    docs = graph_retriever.search(req.query, year=req.year, source=req.source, top_k=req.top_k)
+    docs = await graph_retriever.search(req.query, year=req.year, source=req.source, top_k=req.top_k)
     out = []
     for d in docs:
         out.append(DocResult(

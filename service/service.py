@@ -1,5 +1,3 @@
-from fastapi import UploadFile
-
 from entity.file_model import FileModel
 from request.document_request import DocumentRequest
 from request.file_download_request import FileDownloadRequest
@@ -10,6 +8,11 @@ from utils.logger_util import logger
 from utils.minio_util import minio_client, BUCKET_NAME
 from starlette.responses import StreamingResponse
 from urllib.parse import quote
+from pathlib import Path
+from datetime import datetime
+from marker_parse import parse_pdf_marker
+from chunker import split_md_content
+from vector_store import add_documents_to_milvus
 
 
 class Service():
@@ -132,17 +135,107 @@ class Service():
             headers={"Content-Disposition": content_disposition}
         )
 
-    def upload_file(self, file: UploadFile):
-        """上传文件，文件解析，并把文件插入到数据库中"""
-        # -1）将文件上传到minio中
+    def upload_file_async(self, filename: str, file_content: bytes, content_type: str):
+        """
+        后台异步处理文件上传和解析
+        
+        处理流程:
+        1. 上传文件到 MinIO 存储
+        2. 创建数据库记录（状态: 处理中）
+        3. 如果是 PDF，进行解析和向量化
+        4. 更新数据库状态（成功/失败）
+        
+        Args:
+            filename: 原始文件名
+            file_content: 文件二进制内容
+            content_type: 文件 MIME 类型
+        """
+        from io import BytesIO
+        uid = None
+        try:
+            logger.info(f"开始处理文件: {filename}")
+            ext = (Path(filename).suffix or "").lower()
+            is_pdf = ext == ".pdf"
+            uid = id_worker.get_id()
+            bucket = BUCKET_NAME
+            
+            # 确保 bucket 存在
+            if not minio_client.bucket_exists(bucket):
+                minio_client.make_bucket(bucket)
+            
+            # 1. 上传到 MinIO
+            size_bytes = len(file_content)
+            object_name = f"uploads/{uid}/{filename}"
+            minio_content_type = "application/pdf" if is_pdf else (content_type or "application/octet-stream")
+            minio_client.put_object(bucket, object_name, BytesIO(file_content), length=size_bytes, content_type=minio_content_type)
+            minio_url = f"{bucket}/{object_name}"
+            logger.info(f"文件已上传到 MinIO: {minio_url}")
+            
+            # 2. 创建数据库记录
+            self._step_create_db_record(uid, filename, size_bytes, is_pdf, minio_url)
+            
+            # 3. 非 PDF 文件不进行解析
+            if not is_pdf:
+                self._step_update_status_by_id(uid, 3)
+                logger.warning(f"非 PDF 文件，跳过解析: {filename}")
+                return
+            
+            # 4. 保存到本地临时目录
+            local_dir = Path("tmp") / str(uid)
+            local_dir.mkdir(parents=True, exist_ok=True)
+            local_pdf_path = local_dir / filename
+            local_pdf_path.write_bytes(file_content)
+            
+            # 5. PDF 解析转 Markdown
+            logger.info(f"开始解析 PDF: {filename}")
+            md_path = self._step_parse_pdf(local_pdf_path)
+            
+            # 6. 向量化并存入 Milvus
+            logger.info(f"开始向量化: {filename}")
+            self._step_ingest_md(md_path, filename)
+            
+            # 7. 更新状态为成功
+            self._step_update_status_by_id(uid, 2)
+            logger.info(f"文件处理完成: {filename}")
+            
+        except Exception as e:
+            logger.error(f"文件处理失败 [{filename}]: {e}")
+            if uid:
+                try:
+                    self._step_update_status_by_id(uid, 3)
+                except Exception:
+                    pass
 
-        # 0）创建数据库记录
-        id = id_worker.get_id()
+    def _step_create_db_record(self, uid: int, filename: str, size_bytes: int, is_pdf: bool, minio_url: str):
         with create_session() as session:
-            session.query(FileModel)
+            record = FileModel(
+                id=uid,
+                file_name=filename,
+                status=1,
+                size=round(size_bytes / (1024 * 1024), 2),
+                type=0 if is_pdf else 1,
+                create_time=datetime.now(),
+                delete_flag=0,
+                minio_url=minio_url
+            )
+            session.add(record)
 
-        # 1）把 PDF 文件使用 marker解析为 markdown
+    def _step_parse_pdf(self, local_pdf_path: Path) -> str:
+        return parse_pdf_marker(str(local_pdf_path), output_dir="output")
 
-        # 2) 将 md 插入到数据库中
+    def _step_ingest_md(self, md_path: str, filename: str):
+        text = Path(md_path).read_text(encoding="utf-8")
+        year = None
+        for token in Path(filename).stem.replace("_", "-").split("-"):
+            if token.isdigit() and len(token) == 4 and token.startswith(("19", "20")):
+                try:
+                    year = int(token)
+                    break
+                except Exception:
+                    pass
+        chunks = split_md_content(text, source_filename=filename, year=year if year is not None else 0)
+        add_documents_to_milvus(chunks)
 
-
+    def _step_update_status_by_id(self, uid: int, status: int):
+        with create_session() as session:
+            session.query(FileModel).filter(FileModel.id == uid).update({"status": status})
