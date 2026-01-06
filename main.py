@@ -1,9 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from urllib.parse import quote
 
 from request.file_download_request import FileDownloadRequest
+from request.file_preview_request import FilePreviewRequest
 from utils.logger_util import logger
 from utils.response_util import build_response
 from chunker import split_md_content
@@ -33,19 +33,17 @@ async def document(req: DocumentRequest):
 
 @app.post("/file_download", summary="文件下载")
 async def file_download(req: FileDownloadRequest):
-    result = service.file_download(req)
-    if not result:
+    resp = service.file_download(req)
+    if not resp:
         return JSONResponse(status_code=404, content={'message': '文件不存在'})
-    iterator = result["iterator"]
-    file_name = result["file_name"]
-    content_type = result["content_type"]
-    encoded_file_name = quote(file_name)
-    content_disposition = "attachment; filename*=UTF-8''{}".format(encoded_file_name)
-    return StreamingResponse(
-        iterator,
-        media_type=content_type,
-        headers={"Content-Disposition": content_disposition}
-    )
+    return resp
+
+@app.get("/file_preview", summary="文件预览")
+async def file_preview(req: FilePreviewRequest):
+    resp = service.file_preview(req)
+    if not resp:
+        return JSONResponse(status_code=404, content={'message': '文件不存在'})
+    return resp
 
 
 @app.post("/assistant", summary="RAG调用")
