@@ -7,6 +7,7 @@ load_dotenv()
 ENDPOINT = os.getenv('ENDPOINT')
 ACCESS_KEY = os.getenv('ACCESS_KEY')
 SECRET_KEY = os.getenv('SECRET_KEY')
+BUCKET_NAME = os.getenv('BUCKET_NAME')
 minio_client = Minio(
     endpoint=ENDPOINT,
     access_key=ACCESS_KEY,

@@ -1,7 +1,11 @@
 from fastapi import FastAPI
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from urllib.parse import quote
+
+from request.file_download_request import FileDownloadRequest
 from utils.logger_util import logger
+from utils.response_util import build_response
 from chunker import split_md_content
 from rag_graph import app as graph_workflow, retriever as graph_retriever
 from request.ask_request import AskRequest
@@ -24,7 +28,24 @@ app.add_middleware(
 service = Service()
 @app.post("/document", summary="文档查询")
 async def document(req: DocumentRequest):
-    service.list(req)
+    data = service.list(req)
+    return build_response(data)
+
+@app.post("/file_download", summary="文件下载")
+async def file_download(req: FileDownloadRequest):
+    result = service.file_download(req)
+    if not result:
+        return JSONResponse(status_code=404, content={'message': '文件不存在'})
+    iterator = result["iterator"]
+    file_name = result["file_name"]
+    content_type = result["content_type"]
+    encoded_file_name = quote(file_name)
+    content_disposition = "attachment; filename*=UTF-8''{}".format(encoded_file_name)
+    return StreamingResponse(
+        iterator,
+        media_type=content_type,
+        headers={"Content-Disposition": content_disposition}
+    )
 
 
 @app.post("/assistant", summary="RAG调用")

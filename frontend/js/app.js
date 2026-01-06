@@ -10,11 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const targetId = item.dataset.tab;
             
-            // Update Nav State
             navItems.forEach(nav => nav.classList.remove('active'));
             item.classList.add('active');
             
-            // Update View State
             sections.forEach(section => {
                 section.classList.remove('active');
                 if (section.id === `view-${targetId}`) {
@@ -22,12 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // Update Title
             const titleMap = {
                 'ask': '智能问答',
                 'queue': '解析队列'
             };
             pageTitle.textContent = titleMap[targetId];
+
+            if (targetId === 'queue' && !queueData.length) {
+                fetchQueueData();
+            }
         });
     });
 
@@ -65,14 +66,19 @@ document.addEventListener('DOMContentLoaded', () => {
         content.className = 'message-content';
 
         const textEl = document.createElement('div');
-        textEl.className = 'message-text';
+        textEl.className = role === 'bot' ? 'message-text assistant-markdown' : 'message-text';
         textEl.textContent = text || '';
         content.appendChild(textEl);
         
-        if (role === 'bot' && meta) {
+        if (role === 'bot') {
+            const typing = document.createElement('div');
+            typing.className = 'typing-indicator';
+            typing.innerHTML = '<span></span><span></span><span></span>';
+            content.appendChild(typing);
+
             const metaDiv = document.createElement('div');
             metaDiv.className = 'message-meta';
-            metaDiv.textContent = meta;
+            metaDiv.textContent = meta || '';
             content.appendChild(metaDiv);
         }
 
@@ -84,6 +90,80 @@ document.addEventListener('DOMContentLoaded', () => {
         return textEl;
     }
 
+    function escapeHtml(str) {
+        return str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function formatInlineMarkdown(text) {
+        let html = escapeHtml(text);
+        html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        return html;
+    }
+
+    function renderMarkdown(md) {
+        if (typeof window !== 'undefined' && window.marked) {
+            if (typeof window.marked.setOptions === 'function') {
+                window.marked.setOptions({
+                    breaks: true
+                });
+            }
+            const renderer = typeof window.marked.parse === 'function' ? window.marked.parse : window.marked;
+            return renderer(md);
+        }
+
+        const lines = md.split(/\r?\n/);
+        const blocks = [];
+        let inUl = false;
+        let inOl = false;
+
+        const closeLists = () => {
+            if (inUl) {
+                blocks.push('</ul>');
+                inUl = false;
+            }
+            if (inOl) {
+                blocks.push('</ol>');
+                inOl = false;
+            }
+        };
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                closeLists();
+                continue;
+            }
+            let match;
+            if ((match = /^[-*]\s+(.+)$/.exec(trimmed))) {
+                if (!inUl) {
+                    closeLists();
+                    blocks.push('<ul>');
+                    inUl = true;
+                }
+                blocks.push('<li>' + formatInlineMarkdown(match[1]) + '</li>');
+            } else if ((match = /^(\d+)\.\s+(.+)$/.exec(trimmed))) {
+                if (!inOl) {
+                    closeLists();
+                    blocks.push('<ol>');
+                    inOl = true;
+                }
+                blocks.push('<li>' + formatInlineMarkdown(match[2]) + '</li>');
+            } else {
+                closeLists();
+                blocks.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
+            }
+        }
+
+        closeLists();
+        return blocks.join('');
+    }
+
     async function handleSend() {
         const text = chatInput.value.trim();
         if (!text) return;
@@ -92,7 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
         chatInput.value = '';
         chatInput.style.height = '24px';
         
-        const botTextEl = addMessage('', 'bot', 'AI 助手');
+        const startTime = performance.now();
+        const botTextEl = addMessage('', 'bot', '');
+        const botContentEl = botTextEl.parentElement;
+        const typingEl = botContentEl.querySelector('.typing-indicator');
+        const metaEl = botContentEl.querySelector('.message-meta');
+        let markdownBuffer = '';
+        let hasReceivedToken = false;
         
         try {
             const res = await fetch(`${API_BASE}/assistant`, {
@@ -133,7 +219,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 finished = true;
                                 break;
                             } else {
-                                botTextEl.textContent += data;
+                                if (!hasReceivedToken) {
+                                    hasReceivedToken = true;
+                                    if (typingEl) {
+                                        typingEl.style.display = 'none';
+                                    }
+                                }
+                                markdownBuffer += data;
+                                botTextEl.innerHTML = renderMarkdown(markdownBuffer);
                                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
                             }
                         }
@@ -142,6 +235,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             botTextEl.textContent = '服务调用失败，请稍后重试。';
+        } finally {
+            const endTime = performance.now();
+            const duration = ((endTime - startTime) / 1000).toFixed(1);
+            if (metaEl) {
+                metaEl.textContent = `耗时 ${duration} 秒`;
+            }
+            if (typingEl) {
+                typingEl.style.display = 'none';
+            }
         }
     }
 
@@ -158,32 +260,87 @@ document.addEventListener('DOMContentLoaded', () => {
     const queueSearch = document.getElementById('queueSearch');
     const filterBtns = document.querySelectorAll('.filter-btn');
     
-    // Mock Data
-    const mockData = [
-        { name: '2024_年度报告.pdf', status: 'success', type: 'PDF', size: '2.4 MB', date: '2025-10-24' },
-        { name: 'Q3_市场分析报告.docx', status: 'processing', type: 'DOCX', size: '1.8 MB', date: '2025-10-23' },
-        { name: '用户反馈数据_Raw.txt', status: 'error', type: 'TXT', size: '450 KB', date: '2025-10-22' },
-        { name: '竞品分析_v2.pdf', status: 'pending', type: 'PDF', size: '5.1 MB', date: '2025-10-21' },
-        { name: '内部备忘录_v2.docx', status: 'success', type: 'DOCX', size: '1.2 MB', date: '2025-10-20' },
-    ];
-
+    let queueData = [];
     let currentFilter = 'all';
 
-    function renderQueue() {
-        const term = queueSearch.value.toLowerCase();
-        queueBody.innerHTML = '';
-        
-        const filtered = mockData.filter(item => {
-            if (currentFilter !== 'all' && getSimpleStatus(item.status) !== currentFilter) return false;
-            return item.name.toLowerCase().includes(term);
-        });
+    function mapStatus(code) {
+        if (code === 0) return 'pending';
+        if (code === 1) return 'processing';
+        if (code === 2) return 'success';
+        if (code === 3) return 'error';
+        return 'pending';
+    }
 
-        if (filtered.length === 0) {
+    function mapType(code) {
+        if (code === 0) return 'PDF';
+        if (code === 1) return 'DOCX';
+        if (code === 2) return 'TXT';
+        return '未知';
+    }
+
+    function formatSize(size) {
+        if (size == null) return '-';
+        const num = Number(size);
+        if (Number.isNaN(num)) return '-';
+        return num.toFixed(1) + ' MB';
+    }
+
+    function buildStatusCode(filterKey) {
+        if (filterKey === 'processing') return 1;
+        if (filterKey === 'success') return 2;
+        if (filterKey === 'failed') return 3;
+        if (filterKey === 'pending') return 0;
+        return null;
+    }
+
+    async function fetchQueueData(searchTerm = '', filterKey = 'all') {
+        try {
+            const payload = {};
+            if (searchTerm) {
+                payload.file_name = searchTerm;
+            }
+            const statusCode = buildStatusCode(filterKey);
+            if (statusCode !== null) {
+                payload.status = statusCode;
+            }
+
+            const res = await fetch(`${API_BASE}/document`, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                throw new Error('network error');
+            }
+            const result = await res.json();
+            const list = Array.isArray(result.data) ? result.data : [];
+            queueData = list.map(item => ({
+                name: item.file_name,
+                status: mapStatus(item.status),
+                type: mapType(item.type),
+                size: formatSize(item.size),
+                date: item.create_time || '-'
+            }));
+            renderQueue();
+        } catch (e) {
+            queueBody.innerHTML = `<tr><td colspan="6" class="empty-state">加载数据失败</td></tr>`;
+        }
+    }
+
+    function renderQueue() {
+        queueBody.innerHTML = '';
+
+        const data = queueData;
+
+        if (data.length === 0) {
             queueBody.innerHTML = `<tr><td colspan="6" class="empty-state">未找到符合条件的文件</td></tr>`;
             return;
         }
 
-        filtered.forEach(item => {
+        data.forEach(item => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td>
@@ -235,12 +392,16 @@ document.addEventListener('DOMContentLoaded', () => {
             filterBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentFilter = btn.dataset.filter;
-            renderQueue();
+            fetchQueueData(queueSearch.value.trim(), currentFilter);
         });
     });
 
-    queueSearch.addEventListener('input', renderQueue);
+    queueSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            fetchQueueData(queueSearch.value.trim(), currentFilter);
+        }
+    });
     
-    // Initial Render
-    renderQueue();
+    // Initial Render: do not load queue data until user enters queue view
 });
