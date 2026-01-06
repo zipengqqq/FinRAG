@@ -55,7 +55,7 @@ async def file_download(req: FileDownloadRequest):
         return JSONResponse(status_code=404, content={'message': '文件不存在'})
     return resp
 
-@app.get("/file_preview", summary="文件预览")
+@app.post("/file_preview", summary="文件预览")
 async def file_preview(req: FilePreviewRequest):
     resp = service.file_preview(req)
     if not resp:

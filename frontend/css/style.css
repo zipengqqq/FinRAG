@@ -184,6 +184,15 @@ body {
     width: 100%;
     margin: 0 auto;
 }
+/* Hide scrollbar track while keeping scroll functional */
+.content-area {
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none;    /* Firefox */
+}
+.content-area::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
 
 /* Views */
 .view-section {
@@ -261,6 +270,15 @@ body {
     gap: 24px;
     opacity: 1;
     /* Removed transition */
+}
+/* Hide scrollbar track in messages list */
+.messages-list {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.messages-list::-webkit-scrollbar {
+    width: 0;
+    height: 0;
 }
 
 /* Initial State Overrides */
@@ -808,6 +826,71 @@ body {
 
 .data-table tr:hover td {
     background: var(--bg-app);
+}
+
+.pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-top: none;
+    background: transparent;
+}
+
+.pagination-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-size-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.page-size-select {
+    padding: 6px 10px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+}
+
+.pagination-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pagination-btn {
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover {
+    background: transparent;
+    border-color: var(--border-light);
+    color: var(--text-primary);
+    box-shadow: none;
+}
+
+.pagination-btn.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.page-info {
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 120px;
+    text-align: center;
 }
 
 .file-info {

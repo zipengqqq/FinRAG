@@ -19,14 +19,28 @@ class Service():
     def list(self, req: DocumentRequest):
         file_name = req.file_name
         status = req.status
+        page = req.page or 1
+        page_size = req.page_size or 10
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 10
         with create_session() as session:
-            query = session.query(FileModel).filter(FileModel.delete_flag == 0)
+            base_query = session.query(FileModel).filter(FileModel.delete_flag == 0)
             if file_name:
-                query = query.filter(FileModel.file_name.like(f"%{file_name}%"))
+                base_query = base_query.filter(FileModel.file_name.like(f"%{file_name}%"))
             if status is not None:
-                query = query.filter(FileModel.status == status)
-            records = query.order_by(FileModel.create_time.desc()).all()
-            return [record.to_dict() for record in records]
+                base_query = base_query.filter(FileModel.status == status)
+            total = base_query.count()
+            query = base_query.order_by(FileModel.create_time.desc())
+            records = query.limit(page_size).offset((page - 1) * page_size).all()
+            items = [record.to_dict() for record in records]
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size
+            }
 
     def file_download(self, req: FileDownloadRequest):
         logger.info(f"文件下载请求, file_id={req.file_id}")

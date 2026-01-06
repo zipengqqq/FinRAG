@@ -23,4 +23,7 @@ class FileModel(Base):
 
     def to_dict(self):
         columns = [col.name for col in self.__table__.columns]
-        return {col: getattr(self, col) for col in columns}
+        data = {col: getattr(self, col) for col in columns}
+        if data.get("id") is not None:
+            data["id"] = str(data["id"])
+        return data

@@ -26,8 +26,9 @@ document.addEventListener('DOMContentLoaded', () => {
             };
             pageTitle.textContent = titleMap[targetId];
 
-            if (targetId === 'queue' && !queueData.length) {
-                fetchQueueData();
+            if (targetId === 'queue') {
+                currentPage = 1;
+                fetchQueueData(queueSearch.value.trim(), currentFilter);
             }
         });
     });
@@ -333,9 +334,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadPdfInput = document.getElementById('uploadPdfInput');
     const uploadModal = document.getElementById('uploadModal');
     const modalConfirmBtn = document.getElementById('modalConfirmBtn');
+    const prevPageBtn = document.getElementById('prevPageBtn');
+    const nextPageBtn = document.getElementById('nextPageBtn');
+    const pageInfo = document.getElementById('pageInfo');
+    const pageSizeSelect = document.getElementById('pageSizeSelect');
     
     let queueData = [];
     let currentFilter = 'all';
+    let currentPage = 1;
+    let pageSize = 10;
+    let totalCount = 0;
+    let totalPages = 1;
 
     if (modalConfirmBtn && uploadModal) {
         modalConfirmBtn.addEventListener('click', () => {
@@ -446,6 +455,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (statusCode !== null) {
                 payload.status = statusCode;
             }
+            payload.page = currentPage;
+            payload.page_size = pageSize;
 
             const res = await fetch(`${API_BASE}/document`, {
                 method: 'POST',
@@ -459,7 +470,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error('network error');
             }
             const result = await res.json();
-            const list = Array.isArray(result.data) ? result.data : [];
+            const dataObj = result && result.data ? result.data : {};
+            const rawItems = Array.isArray(dataObj.items) ? dataObj.items : (Array.isArray(result.data) ? result.data : []);
+            totalCount = Number(dataObj.total || 0);
+            totalPages = Math.max(1, Math.ceil((totalCount || 0) / pageSize));
+            const list = Array.isArray(rawItems) ? rawItems : [];
             queueData = list.map(item => ({
                 id: item.id,
                 name: item.file_name,
@@ -470,6 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 minio_url: item.minio_url || ''
             }));
             renderQueue();
+            renderPagination();
         } catch (e) {
             queueBody.innerHTML = `<tr><td colspan="6" class="empty-state">加载数据失败</td></tr>`;
         }
@@ -477,9 +493,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function previewFile(fileId) {
         try {
-            const res = await fetch(`${API_BASE}/file_preview?file_id=${encodeURIComponent(String(fileId))}`, {
-                method: 'GET',
-                mode: 'cors'
+            const res = await fetch(`${API_BASE}/file_preview`, {
+                method: 'POST',
+                mode: 'cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/pdf'
+                },
+                body: JSON.stringify({ file_id: String(fileId) })
             });
             if (!res.ok) return;
             const blob = await res.blob();
@@ -549,6 +570,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function renderPagination() {
+        if (pageInfo) {
+            pageInfo.textContent = `第 ${currentPage}/${totalPages} 页，共 ${totalCount} 条`;
+        }
+        if (prevPageBtn) {
+            if (currentPage <= 1) {
+                prevPageBtn.classList.add('disabled');
+            } else {
+                prevPageBtn.classList.remove('disabled');
+            }
+        }
+        if (nextPageBtn) {
+            if (currentPage >= totalPages) {
+                nextPageBtn.classList.add('disabled');
+            } else {
+                nextPageBtn.classList.remove('disabled');
+            }
+        }
+        if (pageSizeSelect) {
+            pageSizeSelect.value = String(pageSize);
+        }
+    }
+
     queueBody.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-action]');
         if (!btn || btn.classList.contains('disabled')) return;
@@ -585,6 +629,7 @@ document.addEventListener('DOMContentLoaded', () => {
             filterBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             currentFilter = btn.dataset.filter;
+            currentPage = 1;
             fetchQueueData(queueSearch.value.trim(), currentFilter);
         });
     });
@@ -592,9 +637,36 @@ document.addEventListener('DOMContentLoaded', () => {
     queueSearch.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
+            currentPage = 1;
             fetchQueueData(queueSearch.value.trim(), currentFilter);
         }
     });
+    if (prevPageBtn) {
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage -= 1;
+                fetchQueueData(queueSearch.value.trim(), currentFilter);
+            }
+        });
+    }
+    if (nextPageBtn) {
+        nextPageBtn.addEventListener('click', () => {
+            if (currentPage < totalPages) {
+                currentPage += 1;
+                fetchQueueData(queueSearch.value.trim(), currentFilter);
+            }
+        });
+    }
+    if (pageSizeSelect) {
+        pageSizeSelect.addEventListener('change', () => {
+            const v = parseInt(pageSizeSelect.value, 10);
+            if (!Number.isNaN(v) && v > 0) {
+                pageSize = v;
+                currentPage = 1;
+                fetchQueueData(queueSearch.value.trim(), currentFilter);
+            }
+        });
+    }
     
     // Initial Render: do not load queue data until user enters queue view
 });

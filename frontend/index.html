@@ -108,6 +108,25 @@
                         </tbody>
                     </table>
                 </div>
+                <div class="pagination-bar">
+                    <div class="pagination-left">
+                        <label class="page-size-label">每页</label>
+                        <select id="pageSizeSelect" class="page-size-select">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                        </select>
+                    </div>
+                    <div class="pagination-right">
+                        <button id="prevPageBtn" class="pagination-btn" title="上一页">
+                            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <span id="pageInfo" class="page-info"></span>
+                        <button id="nextPageBtn" class="pagination-btn" title="下一页">
+                            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+                </div>
             </section>
         </div>
     </main>
