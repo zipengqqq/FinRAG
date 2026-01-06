@@ -38,6 +38,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chatInput');
     const sendBtn = document.getElementById('sendBtn');
     const messagesContainer = document.getElementById('messagesContainer');
+    let isResponding = false;
+    function setChatBusyState(busy) {
+        isResponding = busy;
+        if (chatInput) chatInput.disabled = busy;
+        if (sendBtn) sendBtn.disabled = busy;
+        const box = chatInput ? chatInput.closest('.input-box') : null;
+        if (box) {
+            if (busy) box.classList.add('disabled');
+            else box.classList.remove('disabled');
+        }
+    }
     
     // Auto-resize textarea
     chatInput.addEventListener('input', function() {
@@ -236,12 +247,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleSend() {
+        if (isResponding) return;
         const text = chatInput.value.trim();
         if (!text) return;
         
         addMessage(text, 'user', '刚刚');
         chatInput.value = '';
         chatInput.style.height = '24px';
+        setChatBusyState(true);
         
         const startTime = performance.now();
         const botTextEl = addMessage('', 'bot', '');
@@ -315,6 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (typingEl) {
                 typingEl.style.display = 'none';
             }
+            setChatBusyState(false);
         }
     }
 
@@ -322,7 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            handleSend();
+            if (!isResponding) handleSend();
         }
     });
 

@@ -624,6 +624,16 @@ body {
     color: var(--accent-primary-hover);
 }
 
+.action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.input-box textarea:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
 /* Queue View */
 .queue-header {
     display: flex;
