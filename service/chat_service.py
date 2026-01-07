@@ -38,6 +38,9 @@ class ChatService:
                 state = {"query": req.query, "year": '', "history_str": history_str}
                 async for event in graph_workflow.astream_events(state, version="v2"):
                     if event["event"] == "on_chat_model_stream":
+                        node_name = (event.get("metadata", {}) or {}).get("langgraph_node")
+                        if node_name and node_name != "generator":
+                            continue
                         chunk = event["data"]["chunk"]
                         if hasattr(chunk, "content") and chunk.content:
                             text = chunk.content
