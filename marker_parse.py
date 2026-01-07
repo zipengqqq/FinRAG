@@ -21,6 +21,9 @@ def _set_cn_env(cache_dir: str, use_gpu: bool):
     os.environ.setdefault("TORCH_DEVICE_MODEL", "cuda" if use_gpu and torch.cuda.is_available() else "cpu")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    os.environ.setdefault("SURYA_DEVICE", "cpu")
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
     if use_gpu and torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
         try:
@@ -38,6 +41,8 @@ def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str 
 
     config = {"output_format": "markdown"}
     logger.info(f"设备: {os.environ.get('TORCH_DEVICE')}, dtype: {os.environ.get('MODEL_DTYPE')}")
+    if torch.backends.mps.is_available():
+        config["disable_image_extraction"] = True
     if page_range:
         config["page_range"] = page_range
     if force_ocr:
