@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from request.file_download_request import FileDownloadRequest
 from request.file_preview_request import FilePreviewRequest
+from service.chat_service import ChatService
 from utils.logger_util import logger
 from utils.response_util import build_response
 from chunker import split_md_content
@@ -13,7 +14,7 @@ from request.doc_result import DocResult
 from request.document_request import DocumentRequest
 from request.insert_request import InsertRequest
 from request.search_request import SearchRequest
-from service.service import Service
+from service.main_service import Service
 from vector_store import add_documents_to_milvus
 
 app = FastAPI(title="FinRAG API")
@@ -26,6 +27,7 @@ app.add_middleware(
 )
 
 service = Service()
+chat_service = ChatService()
 
 @app.post("/upload_file", summary="上传文件，文件解析")
 async def upload_file(
@@ -65,32 +67,7 @@ async def file_preview(req: FilePreviewRequest):
 
 @app.post("/assistant", summary="RAG调用")
 async def assistant(req: AskRequest):
-    async def event_generator():
-        state = {"query": req.query, "year": ''}
-
-        # 核心：使用 astream_events (version="v2")
-        # 它可以捕获图内部所有发生的事件，包括 LLM 生成的 token
-        collectd_messages = []
-        async for event in graph_workflow.astream_events(state, version="v2"):
-
-            # 过滤事件类型：我们只关心 Chat Model 的流式输出
-            if event["event"] == "on_chat_model_stream":
-                # 获取 chunk 内容
-                chunk = event["data"]["chunk"]
-                if hasattr(chunk, "content") and chunk.content:
-                    # 输出 SSE 格式数据
-                    collectd_messages.append(chunk.content)
-                    yield f"data: {chunk.content}\n\n"
-        logger.info(f"问题：{req.query}\nLLM响应内容：{''.join(collectd_messages)}")
-
-        # 结束信号
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
-    )
+    return await chat_service.sse_response(req)
 
 @app.post("/insert", summary="文本插入到向量数据库")
 async def ingest(req: InsertRequest):

@@ -40,6 +40,21 @@ class AgentState(TypedDict):
     documents: List[str]  # 检索到的文档内容
     answer: str  # 最终生成的答案
     year: int  # 年份
+    standard_query: str # 标准化 query
+    history_str: str # 历史对话
+
+# 节点 0 -- 提示词重写
+async def rewrite_node(state: AgentState):
+    history_message = state.get('history_str', '当前暂无历史对话')
+    query = state['query']
+    messages = [
+        SystemMessage(content="请基于给定的历史对话和当前问题，生成规范化检索问句，只返回该问句。"),
+        HumanMessage(content=f"历史对话：{history_message}\n\n当前问题：{query}")
+    ]
+    response = await llm.ainvoke(messages)
+    standard_query = response.content.strip()
+    logger.info(f"提示词重写后的问题是：{standard_query}")
+    return {"standard_query": standard_query}
 
 
 # 节点 1 -- 检索员
@@ -73,10 +88,12 @@ async def generate_node(state: AgentState, config: RunnableConfig):
 
 # 构建图
 workflow = StateGraph(AgentState)
+workflow.add_node("rewrite", rewrite_node)
 workflow.add_node("retriever", retrieve_node)
 workflow.add_node("generator", generate_node)
 
-workflow.add_edge(START, "retriever")
+workflow.add_edge(START, "rewrite")
+workflow.add_edge("rewrite", "retriever")
 workflow.add_edge("retriever", "generator")
 workflow.add_edge("generator", END)
 

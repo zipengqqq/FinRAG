@@ -37,12 +37,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatContainer = document.querySelector('.chat-container');
     const chatInput = document.getElementById('chatInput');
     const sendBtn = document.getElementById('sendBtn');
+    const newChatBtn = document.getElementById('newChatBtn');
     const messagesContainer = document.getElementById('messagesContainer');
     let isResponding = false;
+    const STORAGE_KEY = 'finrag_conversation_id';
+    let conversationId = localStorage.getItem(STORAGE_KEY) || null;
+    function ensureConversationId() {
+        if (!conversationId) {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                conversationId = window.crypto.randomUUID();
+            } else {
+                conversationId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+            }
+            localStorage.setItem(STORAGE_KEY, conversationId);
+        }
+        return conversationId;
+    }
+    function resetConversation() {
+        conversationId = null;
+        localStorage.removeItem(STORAGE_KEY);
+        messagesContainer.innerHTML = '';
+        chatContainer.classList.add('is-initial');
+    }
     function setChatBusyState(busy) {
         isResponding = busy;
         if (chatInput) chatInput.disabled = busy;
         if (sendBtn) sendBtn.disabled = busy;
+        if (newChatBtn) newChatBtn.disabled = busy;
         const box = chatInput ? chatInput.closest('.input-box') : null;
         if (box) {
             if (busy) box.classList.add('disabled');
@@ -272,7 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json',
                     'Accept': 'text/event-stream'
                 },
-                body: JSON.stringify({ query: text })
+                body: JSON.stringify({ query: text, conversation_id: ensureConversationId() })
             });
 
             if (!res.ok || !res.body) {
@@ -339,6 +360,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!isResponding) handleSend();
         }
     });
+    if (newChatBtn) {
+        newChatBtn.addEventListener('click', () => {
+            if (isResponding) return;
+            resetConversation();
+            if (chatInput) chatInput.focus();
+        });
+    }
 
     // Queue Logic
     const queueBody = document.getElementById('queueBody');
