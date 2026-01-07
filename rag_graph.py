@@ -18,9 +18,16 @@ llm = ChatOpenAI(
     temperature=0.7,
     streaming=True  # 开启流式
 )
+# llm = ChatOpenAI(
+#     model='gpt-5.1',
+#     api_key='sk-kKd9aJu7rMIulIun8AiqQNyqG3xhz6rhVLGoKu4orsSqDfz4',
+#     base_url='https://api.lingyaai.cn/v1',
+#     temperature=1,
+#     streaming=True
+# )
 
 user_prompt = """
-用户问题：{query}
+用户问题：{query}，请使用 markdown 格式回答（格式必须是markdown格式）。
 
 参考上下文：
 {context_str}
@@ -32,7 +39,7 @@ system_prompt = """
 1. 回答必须基于上下文，不要编造。
 2. 如果上下文中没有答案，直接说“根据现有文档无法回答”。
 3. 回答时引用关键数据，并说明数据来源。
-4. 保持回答条理清晰，可以使用 Markdown 格式。
+4. 保持回答条理清晰，使用 Markdown 格式。
 """
 
 class AgentState(TypedDict):

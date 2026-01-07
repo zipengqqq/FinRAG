@@ -139,6 +139,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return html;
     }
 
+    function normalizeMarkdown(md) {
+        let s = typeof md === 'string' ? md : '';
+        s = s.replace(/\\n/g, '\n');
+        s = s.replace(/\*\*\s+/g, '**');
+        s = s.replace(/\s+\*\*/g, '**');
+        return s;
+    }
+
     function convertPipeTables(md) {
         const lines = md.split(/\r?\n/);
         const out = [];
@@ -189,6 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderMarkdown(md) {
+        md = normalizeMarkdown(md);
         md = convertPipeTables(md);
         if (typeof window !== 'undefined' && window.marked) {
             try {
@@ -204,10 +213,63 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (typeof window.marked === 'function') {
                     html = window.marked(md);
                 }
-                if (html != null && typeof window !== 'undefined' && window.DOMPurify) {
-                    return window.DOMPurify.sanitize(html);
+                if (html != null) {
+                    if (/\*\*/.test(html)) {
+                        const lines = md.split(/\r?\n/);
+                        const blocks = [];
+                        let inUl = false;
+                        let inOl = false;
+                        const closeLists = () => {
+                            if (inUl) {
+                                blocks.push('</ul>');
+                                inUl = false;
+                            }
+                            if (inOl) {
+                                blocks.push('</ol>');
+                                inOl = false;
+                            }
+                        };
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (!trimmed) {
+                                closeLists();
+                                continue;
+                            }
+                            let match;
+                            if ((match = /^[-*]\s+(.+)$/.exec(trimmed))) {
+                                if (!inUl) {
+                                    closeLists();
+                                    blocks.push('<ul>');
+                                    inUl = true;
+                                }
+                                blocks.push('<li>' + formatInlineMarkdown(match[1]) + '</li>');
+                            } else if ((match = /^(\d+)\.\s+(.+)$/.exec(trimmed))) {
+                                if (!inOl) {
+                                    closeLists();
+                                    blocks.push('<ol>');
+                                    inOl = true;
+                                }
+                                blocks.push('<li>' + formatInlineMarkdown(match[2]) + '</li>');
+                            } else if (/^<\w+/.test(trimmed)) {
+                                closeLists();
+                                blocks.push(trimmed);
+                            } else {
+                                closeLists();
+                                blocks.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
+                            }
+                        }
+                        closeLists();
+                        const fallbackHtml = blocks.join('');
+                        if (typeof window !== 'undefined' && window.DOMPurify) {
+                            return window.DOMPurify.sanitize(fallbackHtml);
+                        }
+                        return fallbackHtml;
+                    }
+                    if (typeof window !== 'undefined' && window.DOMPurify) {
+                        return window.DOMPurify.sanitize(html);
+                    }
+                    return html;
                 }
-                if (html != null) return html;
             } catch (e) {
                 console.error('Markdown parsing error:', e);
             }
