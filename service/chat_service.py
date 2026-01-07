@@ -1,3 +1,4 @@
+import json
 import uuid
 from typing import List, Dict
 from starlette.responses import StreamingResponse
@@ -41,9 +42,12 @@ class ChatService:
                         if hasattr(chunk, "content") and chunk.content:
                             text = chunk.content
                             collected.append(text)
-                            yield f"data: {text}\n\n"
+                            result = json.dumps({"content": text, "role": "assistant", "type": 'Normal'}, ensure_ascii=False)
+                            yield f"data: {result}\n\n"
                 logger.info(f"问题：{req.query}\nLLM响应内容：{''.join(collected)}")
-                yield "data: [DONE]\n\n"
+
+                result = json.dumps({"content": ''.join(collected), "role": "assistant", "type": 'End'}, ensure_ascii=False)
+                yield f"data: {result}\n\n"
             finally:
                 self._append(cid, "user", user_content)
                 self._append(cid, "assistant", "".join(collected))

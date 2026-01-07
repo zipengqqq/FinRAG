@@ -366,35 +366,53 @@ document.addEventListener('DOMContentLoaded', () => {
             const decoder = new TextDecoder('utf-8');
             let buffer = '';
             let finished = false;
-            const boundaryRegex = /\r?\n\r?\n/;
+            let eventLines = [];
 
             while (!finished) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 buffer += decoder.decode(value, { stream: true });
-
-                let match;
-                while ((match = boundaryRegex.exec(buffer)) !== null) {
-                    const sseChunk = buffer.slice(0, match.index);
-                    buffer = buffer.slice(match.index + match[0].length);
-
-                    const lines = sseChunk.split(/\r?\n/);
-                    for (const line of lines) {
-                        if (line.startsWith('data:')) {
-                            const raw = line.slice(5);
-                            if (raw.trim() === '[DONE]') {
-                                finished = true;
-                                break;
-                            } else {
+                const parts = buffer.split(/\r?\n/);
+                buffer = parts.pop() || '';
+                for (const line of parts) {
+                    if (line.startsWith('data:')) {
+                        eventLines.push(line.slice(5));
+                    } else if (line === '') {
+                        const raw = eventLines.join('\n').trim();
+                        eventLines = [];
+                        let payload = null;
+                        try {
+                            payload = JSON.parse(raw);
+                        } catch (_) {
+                            payload = null;
+                        }
+                        if (payload && typeof payload === 'object') {
+                            const t = String(payload.type || '');
+                            const c = String(payload.content || '');
+                            if (t === 'Normal') {
                                 if (!hasReceivedToken) {
                                     hasReceivedToken = true;
                                     if (typingEl) {
                                         typingEl.style.display = 'none';
                                     }
                                 }
-                                markdownBuffer += raw;
+                                markdownBuffer += c;
                                 botTextEl.innerHTML = renderMarkdown(markdownBuffer);
                                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                            } else if (t === 'End') {
+                                if (!hasReceivedToken) {
+                                    hasReceivedToken = true;
+                                    if (typingEl) {
+                                        typingEl.style.display = 'none';
+                                    }
+                                }
+                                if (c) {
+                                    markdownBuffer += c;
+                                    botTextEl.innerHTML = renderMarkdown(markdownBuffer);
+                                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                }
+                                finished = true;
+                                break;
                             }
                         }
                     }
