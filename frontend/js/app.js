@@ -380,6 +380,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const nextPageBtn = document.getElementById('nextPageBtn');
     const pageInfo = document.getElementById('pageInfo');
     const pageSizeSelect = document.getElementById('pageSizeSelect');
+    const progressModal = document.getElementById('progressModal');
+    const progressTitle = document.getElementById('progressTitle');
+    const progressText = document.getElementById('progressText');
+    const progressBar = document.getElementById('progressBar');
+    const progressCloseBtn = document.getElementById('progressCloseBtn');
     
     let queueData = [];
     let currentFilter = 'all';
@@ -387,6 +392,49 @@ document.addEventListener('DOMContentLoaded', () => {
     let pageSize = 10;
     let totalCount = 0;
     let totalPages = 1;
+    let progressVisible = false;
+    function openProgress(title, text) {
+        if (progressTitle) progressTitle.textContent = title || '处理中';
+        if (progressText) progressText.textContent = text || '';
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            progressBar.classList.remove('indeterminate');
+        }
+        if (progressModal) {
+            progressModal.style.display = 'flex';
+            progressVisible = true;
+        }
+    }
+    function updateProgress(percent) {
+        if (!progressVisible) return;
+        if (typeof percent === 'number' && progressBar) {
+            const v = Math.max(0, Math.min(100, percent));
+            progressBar.style.width = v + '%';
+            if (progressText) progressText.textContent = `已传输 ${Math.floor(v)}%`;
+        }
+    }
+    function setProgressIndeterminate(on) {
+        if (!progressBar) return;
+        if (on) {
+            progressBar.classList.add('indeterminate');
+        } else {
+            progressBar.classList.remove('indeterminate');
+        }
+    }
+    function formatBytes(bytes) {
+        const mb = bytes / (1024 * 1024);
+        return mb < 0.1 ? (bytes / 1024).toFixed(0) + ' KB' : mb.toFixed(1) + ' MB';
+    }
+    function closeProgress() {
+        if (!progressVisible) return;
+        if (progressModal) progressModal.style.display = 'none';
+        progressVisible = false;
+    }
+    if (progressCloseBtn) {
+        progressCloseBtn.addEventListener('click', () => {
+            closeProgress();
+        });
+    }
 
     if (modalConfirmBtn && uploadModal) {
         modalConfirmBtn.addEventListener('click', () => {
@@ -533,8 +581,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function previewFile(fileId) {
+    async function previewFile(fileId, btn) {
         try {
+            const originalHtml = btn ? btn.innerHTML : null;
+            if (btn) btn.classList.add('disabled');
+            openProgress('预览中', '正在获取文件...');
             const res = await fetch(`${API_BASE}/file_preview`, {
                 method: 'POST',
                 mode: 'cors',
@@ -545,15 +596,56 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ file_id: String(fileId) })
             });
             if (!res.ok) return;
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank', 'noopener,noreferrer');
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch (_) {}
+            const totalHeader = res.headers.get('content-length');
+            const total = totalHeader ? parseInt(totalHeader, 10) : 0;
+            const knownTotal = total > 0;
+            setProgressIndeterminate(!knownTotal);
+            if (res.body && typeof res.body.getReader === 'function') {
+                const reader = res.body.getReader();
+                const chunks = [];
+                let received = 0;
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.byteLength;
+                    if (knownTotal) {
+                        updateProgress((received / total) * 100);
+                    } else {
+                        if (progressText) progressText.textContent = `已接收 ${formatBytes(received)}`;
+                    }
+                }
+                const blob = new Blob(chunks, { type: 'application/pdf' });
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank', 'noopener,noreferrer');
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+            } else {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank', 'noopener,noreferrer');
+                setTimeout(() => URL.revokeObjectURL(url), 60000);
+            }
+            if (!knownTotal) {
+                setProgressIndeterminate(false);
+                updateProgress(100);
+            }
+        } catch (_) {
+            if (progressText) progressText.textContent = '预览失败';
+            setTimeout(() => closeProgress(), 1200);
+        } finally {
+            closeProgress();
+            if (btn) {
+                btn.classList.remove('disabled');
+                if (originalHtml != null) btn.innerHTML = originalHtml;
+            }
+        }
     }
 
-    async function downloadFile(fileId, fileName) {
+    async function downloadFile(fileId, fileName, btn) {
         try {
+            const originalHtml = btn ? btn.innerHTML : null;
+            if (btn) btn.classList.add('disabled');
+            openProgress('下载中', '正在下载文件...');
             const res = await fetch(`${API_BASE}/file_download`, {
                 method: 'POST',
                 mode: 'cors',
@@ -561,16 +653,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ file_id: String(fileId) })
             });
             if (!res.ok) return;
-            const blob = await res.blob();
+            const totalHeader = res.headers.get('content-length');
+            const total = totalHeader ? parseInt(totalHeader, 10) : 0;
+            const knownTotal = total > 0;
+            setProgressIndeterminate(!knownTotal);
+            let url;
+            if (res.body && typeof res.body.getReader === 'function') {
+                const reader = res.body.getReader();
+                const chunks = [];
+                let received = 0;
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.byteLength;
+                    if (knownTotal) {
+                        updateProgress((received / total) * 100);
+                    } else {
+                        if (progressText) progressText.textContent = `已接收 ${formatBytes(received)}`;
+                    }
+                }
+                const blob = new Blob(chunks, { type: 'application/octet-stream' });
+                url = URL.createObjectURL(blob);
+            } else {
+                const blob = await res.blob();
+                url = URL.createObjectURL(blob);
+            }
             const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
             link.href = url;
             link.download = fileName || 'download';
             document.body.appendChild(link);
             link.click();
             link.remove();
             URL.revokeObjectURL(url);
-        } catch (_) {}
+            if (!knownTotal) {
+                setProgressIndeterminate(false);
+                updateProgress(100);
+            }
+        } catch (_) {
+        } finally {
+            closeProgress();
+            if (btn) {
+                btn.classList.remove('disabled');
+                if (originalHtml != null) btn.innerHTML = originalHtml;
+            }
+        }
     }
 
     function renderQueue() {
@@ -641,9 +768,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const id = btn.dataset.id;
         const name = btn.dataset.name;
         if (btn.dataset.action === 'preview') {
-            previewFile(id);
+            previewFile(id, btn);
         } else if (btn.dataset.action === 'download') {
-            downloadFile(id, name);
+            downloadFile(id, name, btn);
         }
     });
 
