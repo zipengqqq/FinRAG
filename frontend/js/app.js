@@ -1,5 +1,49 @@
 document.addEventListener('DOMContentLoaded', () => {
     const API_BASE = 'http://127.0.0.1:8288';
+    const md = (typeof window !== 'undefined' && window.markdownit)
+        ? window.markdownit({
+            html: false,
+            linkify: true,
+            breaks: true,
+            highlight: (str, lang) => {
+                try {
+                    if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                        const out = window.hljs.highlight(str, { language: lang }).value;
+                        return `<pre class="hljs"><code class="hljs language-${lang}">${out}</code></pre>`;
+                    }
+                    if (window.hljs) {
+                        const out = window.hljs.highlightAuto(str).value;
+                        return `<pre class="hljs"><code class="hljs">${out}</code></pre>`;
+                    }
+                } catch (_) {}
+                const escaped = md.utils.escapeHtml ? md.utils.escapeHtml(str) : str.replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s]));
+                return `<pre class="hljs"><code class="hljs">${escaped}</code></pre>`;
+            }
+        })
+        : null;
+    if (md) {
+        const defaultRender = md.renderer.rules.link_open || function (tokens, idx, options, env, self) {
+            return self.renderToken(tokens, idx, options);
+        };
+        md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+            const aIndex = tokens[idx].attrIndex('target');
+            if (aIndex < 0) {
+                tokens[idx].attrPush(['target', '_blank']);
+            } else {
+                tokens[idx].attrs[aIndex][1] = '_blank';
+            }
+            const relIndex = tokens[idx].attrIndex('rel');
+            if (relIndex < 0) {
+                tokens[idx].attrPush(['rel', 'noopener noreferrer nofollow']);
+            } else {
+                tokens[idx].attrs[relIndex][1] = 'noopener noreferrer nofollow';
+            }
+            return defaultRender(tokens, idx, options, env, self);
+        };
+        if (window.hljs && typeof window.hljs.configure === 'function') {
+            window.hljs.configure({ ignoreUnescapedHTML: true });
+        }
+    }
     // Tab Switching Logic
     const navItems = document.querySelectorAll('.nav-item');
     const sections = document.querySelectorAll('.view-section');
@@ -99,7 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
         content.className = 'message-content';
 
         const textEl = document.createElement('div');
-        textEl.className = role === 'bot' ? 'message-text assistant-markdown' : 'message-text';
+        textEl.className = role === 'bot' ? 'message-text assistant-markdown markdown-body' : 'message-text';
         textEl.textContent = text || '';
         content.appendChild(textEl);
         
@@ -142,9 +186,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function normalizeMarkdown(md) {
         let s = typeof md === 'string' ? md : '';
         s = s.replace(/\\n/g, '\n');
-        s = s.replace(/\*\*\s+/g, '**');
-        s = s.replace(/\s+\*\*/g, '**');
+        s = s.replace(/\*\* +/g, '**');
+        s = s.replace(/ +\*\*/g, '**');
         return s;
+    }
+
+    function fixTitleBullets(md) {
+        const lines = String(md || '').split(/\r?\n/);
+        for (let i = 0; i < lines.length; i++) {
+            const l = lines[i];
+            if (/^\s*-\s*\*\*[^*]+?\*\*\s*[：:]/.test(l)) {
+                lines[i] = l.replace(/^\s*-\s*/, '');
+            }
+        }
+        return lines.join('\n');
     }
 
     function convertPipeTables(md) {
@@ -196,137 +251,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return out.join('\n');
     }
 
-    function renderMarkdown(md) {
-        md = normalizeMarkdown(md);
-        md = convertPipeTables(md);
-        if (typeof window !== 'undefined' && window.marked) {
+    function renderMarkdown(text) {
+        const src = fixTitleBullets(normalizeMarkdown(text));
+        if (md) {
             try {
-                if (typeof window.marked.setOptions === 'function') {
-                    window.marked.setOptions({
-                        breaks: true,
-                        gfm: true
-                    });
-                }
-                let html;
-                if (typeof window.marked.parse === 'function') {
-                    html = window.marked.parse(md);
-                } else if (typeof window.marked === 'function') {
-                    html = window.marked(md);
-                }
-                if (html != null) {
-                    if (/\*\*/.test(html)) {
-                        const lines = md.split(/\r?\n/);
-                        const blocks = [];
-                        let inUl = false;
-                        let inOl = false;
-                        const closeLists = () => {
-                            if (inUl) {
-                                blocks.push('</ul>');
-                                inUl = false;
-                            }
-                            if (inOl) {
-                                blocks.push('</ol>');
-                                inOl = false;
-                            }
-                        };
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (!trimmed) {
-                                closeLists();
-                                continue;
-                            }
-                            let match;
-                            if ((match = /^[-*]\s+(.+)$/.exec(trimmed))) {
-                                if (!inUl) {
-                                    closeLists();
-                                    blocks.push('<ul>');
-                                    inUl = true;
-                                }
-                                blocks.push('<li>' + formatInlineMarkdown(match[1]) + '</li>');
-                            } else if ((match = /^(\d+)\.\s+(.+)$/.exec(trimmed))) {
-                                if (!inOl) {
-                                    closeLists();
-                                    blocks.push('<ol>');
-                                    inOl = true;
-                                }
-                                blocks.push('<li>' + formatInlineMarkdown(match[2]) + '</li>');
-                            } else if (/^<\w+/.test(trimmed)) {
-                                closeLists();
-                                blocks.push(trimmed);
-                            } else {
-                                closeLists();
-                                blocks.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
-                            }
-                        }
-                        closeLists();
-                        const fallbackHtml = blocks.join('');
-                        if (typeof window !== 'undefined' && window.DOMPurify) {
-                            return window.DOMPurify.sanitize(fallbackHtml);
-                        }
-                        return fallbackHtml;
-                    }
-                    if (typeof window !== 'undefined' && window.DOMPurify) {
-                        return window.DOMPurify.sanitize(html);
-                    }
-                    return html;
-                }
+                return md.render(src);
             } catch (e) {
-                console.error('Markdown parsing error:', e);
+                console.error('markdown-it render error:', e);
             }
         }
-
-        const lines = md.split(/\r?\n/);
-        const blocks = [];
-        let inUl = false;
-        let inOl = false;
-
-        const closeLists = () => {
-            if (inUl) {
-                blocks.push('</ul>');
-                inUl = false;
-            }
-            if (inOl) {
-                blocks.push('</ol>');
-                inOl = false;
-            }
-        };
-
-        for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) {
-                closeLists();
-                continue;
-            }
-            let match;
-            if ((match = /^[-*]\s+(.+)$/.exec(trimmed))) {
-                if (!inUl) {
-                    closeLists();
-                    blocks.push('<ul>');
-                    inUl = true;
-                }
-                blocks.push('<li>' + formatInlineMarkdown(match[1]) + '</li>');
-            } else if ((match = /^(\d+)\.\s+(.+)$/.exec(trimmed))) {
-                if (!inOl) {
-                    closeLists();
-                    blocks.push('<ol>');
-                    inOl = true;
-                }
-                blocks.push('<li>' + formatInlineMarkdown(match[2]) + '</li>');
-            } else if (/^<\w+/.test(trimmed)) {
-                closeLists();
-                blocks.push(trimmed);
-            } else {
-                closeLists();
-                blocks.push('<p>' + formatInlineMarkdown(trimmed) + '</p>');
-            }
-        }
-
-        closeLists();
-        const html = blocks.join('');
-        if (typeof window !== 'undefined' && window.DOMPurify) {
-            return window.DOMPurify.sanitize(html);
-        }
-        return html;
+        // Fallback: minimal escape when markdown-it is unavailable
+        return (src || '').replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s]));
     }
 
     async function handleSend() {
@@ -405,11 +340,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                     if (typingEl) {
                                         typingEl.style.display = 'none';
                                     }
-                                }
-                                if (c) {
-                                    markdownBuffer += c;
-                                    botTextEl.innerHTML = renderMarkdown(markdownBuffer);
-                                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                    if (c) {
+                                        markdownBuffer = c;
+                                        botTextEl.innerHTML = renderMarkdown(markdownBuffer);
+                                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                    }
                                 }
                                 finished = true;
                                 break;
