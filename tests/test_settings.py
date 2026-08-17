@@ -54,13 +54,44 @@ def test_read_settings_uses_explicit_milvus_values(settings_module, monkeypatch)
     assert values.milvus_uri == "http://milvus.local:25000"
 
 
+def test_read_settings_loads_project_dotenv_outside_project_directory(
+    settings_module, monkeypatch, tmp_path
+):
+    project_root = tmp_path / "project"
+    module_directory = project_root / "utils"
+    module_directory.mkdir(parents=True)
+    (project_root / ".env").write_text(
+        "DATABASE_URI=mysql+pymysql://dotenv-user:dotenv-password@localhost/dotenv\n"
+        "ENDPOINT=dotenv-endpoint:9000\n"
+        "ACCESS_KEY=dotenv-access-key\n"
+        "SECRET_KEY=dotenv-secret-key\n"
+        "BUCKET_NAME=dotenv-bucket\n",
+        encoding="utf-8",
+    )
+    outside_project = tmp_path / "outside-project"
+    outside_project.mkdir()
+    monkeypatch.chdir(outside_project)
+    monkeypatch.setattr(settings_module, "__file__", str(module_directory / "settings.py"))
+    for name in REQUIRED_VALUES:
+        monkeypatch.delenv(name)
+
+    values = settings_module.read_settings()
+
+    assert values.database_uri.startswith("mysql+pymysql://dotenv-user:")
+    assert values.minio_endpoint == "dotenv-endpoint:9000"
+    assert values.bucket_name == "dotenv-bucket"
+
+
 @pytest.mark.parametrize("missing_name", REQUIRED_VALUES)
 def test_read_settings_identifies_missing_required_variable(
     settings_module, monkeypatch, tmp_path, missing_name
 ):
+    module_directory = tmp_path / "project" / "utils"
+    module_directory.mkdir(parents=True)
     empty_directory = tmp_path / "without-dotenv"
     empty_directory.mkdir()
     monkeypatch.chdir(empty_directory)
+    monkeypatch.setattr(settings_module, "__file__", str(module_directory / "settings.py"))
     monkeypatch.delenv(missing_name)
 
     with pytest.raises(RuntimeError, match=missing_name):
