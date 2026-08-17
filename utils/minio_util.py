@@ -1,16 +1,11 @@
-import os
-
-from dotenv import load_dotenv
 from minio import Minio
 
-load_dotenv()
-ENDPOINT = os.getenv('ENDPOINT')
-ACCESS_KEY = os.getenv('ACCESS_KEY')
-SECRET_KEY = os.getenv('SECRET_KEY')
-BUCKET_NAME = os.getenv('BUCKET_NAME')
+from utils.settings import settings
+
+BUCKET_NAME = settings.bucket_name
 minio_client = Minio(
-    endpoint=ENDPOINT,
-    access_key=ACCESS_KEY,
-    secret_key=SECRET_KEY,
+    endpoint=settings.minio_endpoint,
+    access_key=settings.minio_access_key,
+    secret_key=settings.minio_secret_key,
     secure=False
 )

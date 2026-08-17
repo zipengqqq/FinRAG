@@ -1,18 +1,15 @@
-import os
 from contextlib import contextmanager
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 from utils.logger_util import logger
+from utils.settings import settings
 
-load_dotenv()
-DATABASE_URI = os.getenv("DATABASE_URI")
 engine = create_engine(
-    DATABASE_URI,
+    settings.database_uri,
     pool_pre_ping=True,
     pool_recycle=3600,
     echo=False

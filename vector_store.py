@@ -2,8 +2,6 @@ import os.path
 
 import torch
 
-MILVUS_HOST = '101.33.236.84'
-MILVUS_PORT = '19530'
 COLLECTION_NAME = 'financial_rag'
 DIMENSION = 1024
 EMBEDDING_MODEL_PATH = './models/bge-m3'
@@ -24,6 +22,7 @@ from modelscope import snapshot_download
 
 from decorator.time_consume import time_consume
 from utils.logger_util import logger
+from utils.settings import settings
 
 
 # Embedding 单例
@@ -55,7 +54,7 @@ def get_embedding_model():
 
 def init_collection():
     """Collection 初始化（不建索引）"""
-    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
 
     fields = [
         FieldSchema(name='pk', dtype=DataType.INT64, is_primary=True, auto_id=True),
@@ -86,7 +85,7 @@ def get_vector_store():
     embedding = get_embedding_model()
 
     # 使用 uri 方式连接远程 Milvus
-    uri = f"http://{MILVUS_HOST}:{MILVUS_PORT}"
+    uri = settings.milvus_uri
 
     _vector_store = Milvus(
         embedding_function=embedding,
@@ -105,7 +104,7 @@ def add_documents_to_milvus(chunks, batch_size=256):
         logger.info("⚠️ chunks 为空，跳过")
         return
 
-    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
 
     if not utility.has_collection(COLLECTION_NAME):
         init_collection()
@@ -127,7 +126,7 @@ def add_documents_to_milvus(chunks, batch_size=256):
 @time_consume
 def build_hnsw_index():
     """建索引（所有数据完成后执行）"""
-    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
     collection = Collection(COLLECTION_NAME)
 
     # 🔥 关键：先判断 & 删除已有索引
@@ -159,7 +158,7 @@ def build_hnsw_index():
 
 def clear_financial_rag(recreate=True):
     """清空 & 重建collections"""
-    connections.connect(host=MILVUS_HOST, port=MILVUS_PORT)
+    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
 
     if utility.has_collection(COLLECTION_NAME):
         utility.drop_collection(COLLECTION_NAME)
