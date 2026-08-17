@@ -1,10 +1,10 @@
-import os.path
+from pathlib import Path
 
 import torch
 
 COLLECTION_NAME = 'financial_rag'
 DIMENSION = 1024
-EMBEDDING_MODEL_PATH = './models/bge-m3'
+EMBEDDING_MODEL_CACHE_DIR = Path(__file__).resolve().parent / 'models' / 'bge-m3'
 
 
 from pymilvus import (
@@ -22,6 +22,7 @@ from modelscope import snapshot_download
 
 from decorator.time_consume import time_consume
 from utils.logger_util import logger
+from utils.model_paths import resolve_model_path
 from utils.settings import settings
 
 
@@ -36,11 +37,11 @@ def get_embedding_model():
     if _embedding_model is not None:
         return _embedding_model
 
-    if not os.path.exists(EMBEDDING_MODEL_PATH):
+    if not EMBEDDING_MODEL_CACHE_DIR.exists():
         logger.info("🚀 本地未检测到模型，开始下载 bge-m3")
-        snapshot_download('Xorbits/bge-m3', cache_dir=EMBEDDING_MODEL_PATH)
+        snapshot_download('Xorbits/bge-m3', cache_dir=str(EMBEDDING_MODEL_CACHE_DIR))
 
-    real_model_path = EMBEDDING_MODEL_PATH + '/Xorbits/bge-m3'
+    real_model_path = resolve_model_path(EMBEDDING_MODEL_CACHE_DIR, 'Xorbits/bge-m3')
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     _embedding_model = HuggingFaceEmbeddings(

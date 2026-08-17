@@ -4,9 +4,11 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from decorator.time_consume import time_consume
 from utils.logger_util import logger
+from utils.model_paths import resolve_model_path
 from vector_store import get_vector_store
 
-RERANKER_MODEL_PATH = (Path(__file__).parent / 'models' / 'bge-reranker-base' / 'Xorbits' / 'bge-reranker-base').as_posix()
+RERANKER_MODEL_CACHE_DIR = Path(__file__).resolve().parent / 'models' / 'bge-reranker-base'
+RERANKER_MODEL_PATH = resolve_model_path(RERANKER_MODEL_CACHE_DIR, 'Xorbits/bge-reranker-base')
 
 class AdvancedRetriever:
     def __init__(self):
