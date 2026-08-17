@@ -1,7 +1,13 @@
 import re
+import sys
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
+
+repository_root = str(Path(__file__).resolve().parents[1])
+if repository_root not in sys.path:
+    sys.path.insert(0, repository_root)
 
 from entity.file_model import FileModel
 

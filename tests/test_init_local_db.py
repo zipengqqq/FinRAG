@@ -1,11 +1,34 @@
+import importlib.util
 import sys
 from contextlib import nullcontext
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from scripts import init_local_db
 from scripts.init_local_db import database_name_from_uri
+
+
+def test_directly_loaded_script_adds_repository_root_to_module_path(monkeypatch):
+    script_path = Path(init_local_db.__file__).resolve()
+    repository_root = script_path.parents[1]
+    direct_script_path = [
+        entry
+        for entry in sys.path
+        if Path(entry or ".").resolve() != repository_root
+    ]
+    monkeypatch.setattr(sys, "path", [str(script_path.parent), *direct_script_path])
+    monkeypatch.delitem(sys.modules, "entity", raising=False)
+    monkeypatch.delitem(sys.modules, "entity.file_model", raising=False)
+
+    spec = importlib.util.spec_from_file_location("direct_init_local_db", script_path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert str(repository_root) in sys.path
 
 
 def test_database_name_from_uri_accepts_mysql_database_name():
