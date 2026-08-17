@@ -1,73 +1,55 @@
-import re
 from pathlib import Path
+
+import yaml
 
 
 COMPOSE_FILE = Path(__file__).parents[1] / "docker-compose.yml"
 
 
-def _service_names(compose):
-    names = []
-    in_services = False
-
-    for line in compose.splitlines():
-        if line == "services:":
-            in_services = True
-            continue
-        if not in_services:
-            continue
-        if line and not line.startswith(" "):
-            break
-        if not line.startswith("  ") or line.startswith("   "):
-            continue
-
-        name, separator, _ = line[2:].partition(":")
-        if separator and name:
-            names.append(name.strip().strip('"\''))
-
-    return names
+def _load_compose():
+    return yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
 
 
-def test_service_name_extraction_accepts_compose_identifier_characters():
-    compose = """services:
-  api-gateway:
+def test_yaml_parser_accepts_comments_and_hyphenated_service_names():
+    compose = yaml.safe_load(
+        """# Local middleware
+services:
+  api-gateway: # Public API
     image: example/api
-  worker.v2:
-    image: example/worker
-  job_runner:
-    image: example/job
-volumes:
-  local_data:
 """
+    )
 
-    assert _service_names(compose) == ["api-gateway", "worker.v2", "job_runner"]
+    assert compose["services"] == {"api-gateway": {"image": "example/api"}}
 
 
 def test_compose_uses_local_only_ports_and_named_volumes_without_mysql():
-    compose = COMPOSE_FILE.read_text(encoding="utf-8")
+    compose = _load_compose()
+    services = compose["services"]
 
-    assert "mysql:" not in compose.lower()
-    assert _service_names(compose) == [
-        "etcd",
-        "minio",
-        "standalone",
+    assert "version" not in compose
+    assert set(services) == {"etcd", "minio", "standalone"}
+    assert "mysql" not in services
+    assert compose["volumes"] == {
+        "etcd_data": None,
+        "minio_data": None,
+        "milvus_data": None,
+    }
+    assert services["etcd"]["volumes"] == ["etcd_data:/etcd"]
+    assert services["minio"]["volumes"] == ["minio_data:/minio_data"]
+    assert services["standalone"]["volumes"] == ["milvus_data:/var/lib/milvus"]
+    assert services["minio"]["ports"] == [
+        "127.0.0.1:9001:9001",
+        "127.0.0.1:9000:9000",
     ]
-    assert "etcd_data:/etcd" in compose
-    assert "minio_data:/minio_data" in compose
-    assert "milvus_data:/var/lib/milvus" in compose
-    assert "etcd_data:" in compose
-    assert "minio_data:" in compose
-    assert "milvus_data:" in compose
-    assert '"127.0.0.1:9000:9000"' in compose
-    assert '"127.0.0.1:9001:9001"' in compose
-    assert '"127.0.0.1:19530:19530"' in compose
-    assert '"127.0.0.1:9091:9091"' in compose
-    assert "MINIO_ROOT_USER: ${ACCESS_KEY:-minioadmin}" in compose
-    assert "MINIO_ROOT_PASSWORD: ${SECRET_KEY:-minioadmin}" in compose
-    assert re.search(
-        r"    depends_on:\n"
-        r"      etcd:\n"
-        r"        condition: service_healthy\n"
-        r"      minio:\n"
-        r"        condition: service_healthy",
-        compose,
-    )
+    assert services["standalone"]["ports"] == [
+        "127.0.0.1:19530:19530",
+        "127.0.0.1:9091:9091",
+    ]
+    assert services["minio"]["environment"] == {
+        "MINIO_ROOT_USER": "${ACCESS_KEY:-minioadmin}",
+        "MINIO_ROOT_PASSWORD": "${SECRET_KEY:-minioadmin}",
+    }
+    assert services["standalone"]["depends_on"] == {
+        "etcd": {"condition": "service_healthy"},
+        "minio": {"condition": "service_healthy"},
+    }
