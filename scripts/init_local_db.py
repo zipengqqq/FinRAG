@@ -18,6 +18,8 @@ def database_name_from_uri(uri: str) -> str:
         raise ValueError("Database URI must include a database name.")
     if re.fullmatch(r"[A-Za-z0-9_]+", database_name) is None:
         raise ValueError("Database URI must include a safe database name.")
+    if database_name != "fin_rag":
+        raise ValueError("Database URI must use database name 'fin_rag'.")
     return database_name
 
 

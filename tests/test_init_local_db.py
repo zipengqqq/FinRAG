@@ -37,6 +37,17 @@ def test_database_name_from_uri_accepts_mysql_database_name():
     assert database_name_from_uri(uri) == "fin_rag"
 
 
+@pytest.mark.parametrize("database_name", ["finrag", "otherdb"])
+def test_database_name_from_uri_rejects_unexpected_safe_database_name(database_name):
+    uri = (
+        "mysql+pymysql://local-user:local-password@127.0.0.1:3306/"
+        f"{database_name}"
+    )
+
+    with pytest.raises(ValueError, match="must use database name 'fin_rag'"):
+        database_name_from_uri(uri)
+
+
 @pytest.mark.parametrize(
     "uri",
     [
