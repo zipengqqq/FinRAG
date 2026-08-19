@@ -1,3 +1,6 @@
+import json
+import subprocess
+import sys
 from entity.file_model import FileModel
 from request.document_request import DocumentRequest
 from request.file_download_request import FileDownloadRequest
@@ -10,7 +13,6 @@ from starlette.responses import StreamingResponse
 from urllib.parse import quote
 from pathlib import Path
 from datetime import datetime
-from marker_parse import parse_pdf_marker
 from chunker import split_md_content
 from vector_store import add_documents_to_milvus
 
@@ -235,7 +237,35 @@ class Service():
             session.add(record)
 
     def _step_parse_pdf(self, local_pdf_path: Path) -> str:
-        return parse_pdf_marker(str(local_pdf_path), output_dir="output")
+        result_path = local_pdf_path.with_suffix(".marker-result.json")
+        if result_path.exists():
+            result_path.unlink()
+
+        # 调用独立 Marker 解析进程。
+        command = [
+            sys.executable,
+            str(Path(__file__).resolve().parent.parent / "marker_parse.py"),
+            str(local_pdf_path),
+            "output",
+            str(result_path),
+        ]
+        # 继承标准输出和错误输出，实时显示 Marker 解析日志。
+        completed = subprocess.run(command, check=False)
+
+        if not result_path.exists():
+            raise RuntimeError(f"Marker worker failed: exit code {completed.returncode}")
+
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+        if not result.get("ok"):
+            raise RuntimeError(f"Marker worker failed: {result.get('error', 'unknown error')}")
+
+        if completed.returncode != 0:
+            raise RuntimeError(f"Marker worker failed: exit code {completed.returncode}")
+
+        markdown_path = Path(result["markdown_path"])
+        if not markdown_path.exists():
+            raise RuntimeError(f"Marker worker output does not exist: {markdown_path}")
+        return str(markdown_path)
 
     def _step_ingest_md(self, md_path: str, filename: str):
         text = Path(md_path).read_text(encoding="utf-8")

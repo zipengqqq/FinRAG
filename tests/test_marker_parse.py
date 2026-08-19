@@ -1,3 +1,5 @@
+import json
+
 import marker_parse
 
 
@@ -58,3 +60,40 @@ def test_parse_pdf_passes_cuda_to_marker_model_factory(monkeypatch, tmp_path):
     marker_parse.parse_pdf_marker(str(tmp_path / "report.pdf"), output_dir=str(tmp_path))
 
     assert captured == {"device": "cuda", "dtype": marker_parse.torch.float16}
+
+
+def test_worker_entry_writes_markdown_path_on_success(monkeypatch, tmp_path):
+    result_path = tmp_path / "result.json"
+    markdown_path = tmp_path / "report.md"
+    markdown_path.write_text("# report", encoding="utf-8")
+    monkeypatch.setattr(
+        marker_parse,
+        "parse_pdf_marker",
+        lambda *args, **kwargs: str(markdown_path),
+    )
+
+    exit_code = marker_parse.main(
+        [str(tmp_path / "report.pdf"), str(tmp_path), str(result_path)]
+    )
+
+    assert exit_code == 0
+    assert json.loads(result_path.read_text(encoding="utf-8")) == {
+        "ok": True,
+        "markdown_path": str(markdown_path),
+    }
+
+
+def test_worker_entry_writes_error_on_python_exception(monkeypatch, tmp_path):
+    result_path = tmp_path / "result.json"
+    monkeypatch.setattr(
+        marker_parse,
+        "parse_pdf_marker",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("invalid PDF")),
+    )
+
+    exit_code = marker_parse.main(
+        [str(tmp_path / "report.pdf"), str(tmp_path), str(result_path)]
+    )
+
+    assert exit_code == 1
+    assert json.loads(result_path.read_text(encoding="utf-8"))["error"] == "invalid PDF"

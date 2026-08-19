@@ -1,3 +1,7 @@
+from types import SimpleNamespace
+
+from pymilvus.exceptions import MilvusException
+
 import vector_store
 
 
@@ -77,3 +81,41 @@ def test_init_collection_creates_and_loads_ip_hnsw_index(monkeypatch):
         },
     ) in calls
     assert ("load",) in calls
+
+
+def test_add_documents_skips_chunk_with_oversized_section(monkeypatch):
+    stored_batches = []
+    valid_chunk = SimpleNamespace(metadata={"section": "财务报告"})
+    oversized_chunk = SimpleNamespace(metadata={"section": "中" * 342})
+
+    class FakeVectorStore:
+        def add_documents(self, chunks):
+            stored_batches.append(chunks)
+
+    monkeypatch.setattr(vector_store.connections, "connect", lambda **kwargs: None)
+    monkeypatch.setattr(vector_store.utility, "has_collection", lambda name: True)
+    monkeypatch.setattr(vector_store, "get_vector_store", lambda: FakeVectorStore())
+
+    vector_store.add_documents_to_milvus([valid_chunk, oversized_chunk])
+
+    assert stored_batches == [[valid_chunk]]
+
+
+def test_add_documents_retries_failed_batch_one_chunk_at_a_time(monkeypatch):
+    stored_chunks = []
+    valid_chunk = SimpleNamespace(metadata={"section": "财务报告"})
+    invalid_chunk = SimpleNamespace(metadata={"section": "异常记录"})
+
+    class FakeVectorStore:
+        def add_documents(self, chunks):
+            if len(chunks) > 1 or chunks[0] is invalid_chunk:
+                raise MilvusException(code=1100, message="invalid field")
+            stored_chunks.extend(chunks)
+
+    monkeypatch.setattr(vector_store.connections, "connect", lambda **kwargs: None)
+    monkeypatch.setattr(vector_store.utility, "has_collection", lambda name: True)
+    monkeypatch.setattr(vector_store, "get_vector_store", lambda: FakeVectorStore())
+
+    vector_store.add_documents_to_milvus([valid_chunk, invalid_chunk])
+
+    assert stored_chunks == [valid_chunk]

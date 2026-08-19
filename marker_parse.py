@@ -1,4 +1,7 @@
+import json
 import os
+import sys
+import traceback
 from pathlib import Path
 import torch
 from decorator.time_consume import time_consume
@@ -72,5 +75,36 @@ def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str 
     logger.info(f"✅ 转换完成: {out_path}")
     return str(out_path)
 
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if len(args) != 3:
+        return 2
+
+    pdf_path, output_dir, result_path = map(Path, args)
+    try:
+        markdown_path = parse_pdf_marker(str(pdf_path), output_dir=str(output_dir))
+        result_path.write_text(
+            json.dumps(
+                {"ok": True, "markdown_path": markdown_path},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return 0
+    except Exception as exc:
+        result_path.write_text(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return 1
+
+
 if __name__ == "__main__":
-    parse_pdf_marker("data/docs/年报.pdf", output_dir="output")
+    raise SystemExit(main())

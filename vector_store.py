@@ -4,6 +4,7 @@ import torch
 
 COLLECTION_NAME = 'financial_rag'
 DIMENSION = 1024
+SECTION_MAX_LENGTH = 1024
 EMBEDDING_MODEL_CACHE_DIR = Path(__file__).resolve().parent / 'models' / 'bge-m3'
 
 
@@ -15,6 +16,7 @@ from pymilvus import (
     DataType,
     Collection
 )
+from pymilvus.exceptions import MilvusException
 
 from langchain_milvus import Milvus
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -63,7 +65,7 @@ def init_collection():
         FieldSchema(name='vector', dtype=DataType.FLOAT_VECTOR, dim=DIMENSION),
         FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=200),
         FieldSchema(name='year', dtype=DataType.INT16),
-        FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=SECTION_MAX_LENGTH),
     ]
 
     schema = CollectionSchema(fields, description="金融财报 RAG 知识库")
@@ -112,6 +114,30 @@ def get_vector_store():
     return _vector_store
 
 
+def _is_section_within_limit(chunk) -> bool:
+    section = str(chunk.metadata.get('section', ''))
+    return len(section.encode('utf-8')) <= SECTION_MAX_LENGTH
+
+
+def _insert_batch_with_fallback(vector_store, batch, start: int) -> None:
+    try:
+        vector_store.add_documents(batch)
+        return
+    except MilvusException as exc:
+        logger.warning(
+            f"Batch insert failed {start} - {start + len(batch)}; retrying individually: {exc}"
+        )
+
+    for offset, chunk in enumerate(batch):
+        try:
+            vector_store.add_documents([chunk])
+        except MilvusException as exc:
+            section = str(chunk.metadata.get('section', ''))
+            logger.error(
+                f"Skipping invalid chunk {start + offset}, section={section[:100]!r}: {exc}"
+            )
+
+
 @time_consume
 def add_documents_to_milvus(chunks, batch_size=256):
     """文档入库（高速写入）"""
@@ -124,15 +150,26 @@ def add_documents_to_milvus(chunks, batch_size=256):
     if not utility.has_collection(COLLECTION_NAME):
         init_collection()
 
+    valid_chunks = [chunk for chunk in chunks if _is_section_within_limit(chunk)]
+    skipped_count = len(chunks) - len(valid_chunks)
+    if skipped_count:
+        logger.warning(
+            f"Skipping {skipped_count} chunks with section longer than {SECTION_MAX_LENGTH} bytes"
+        )
+
+    if not valid_chunks:
+        logger.warning("No valid chunks to insert")
+        return
+
     vector_store = get_vector_store()
-    total = len(chunks)
+    total = len(valid_chunks)
 
     logger.info(f"🚀 开始入库，共 {total} 条")
 
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
-        batch = chunks[start:end]
-        vector_store.add_documents(batch)
+        batch = valid_chunks[start:end]
+        _insert_batch_with_fallback(vector_store, batch, start)
         logger.info(f"✅ 已入库 {start} - {end}")
 
     logger.info("🎉 所有文档入库完成")
