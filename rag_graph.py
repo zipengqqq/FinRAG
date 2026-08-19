@@ -27,30 +27,28 @@ llm = ChatOpenAI(
 # )
 
 knowledge_base_system_prompt = """
-You are a precise and concise assistant. Use the retrieved knowledge-base context
-to answer the user's question. Do not invent facts that are not supported by it.
+你是一个严谨、简洁的通用知识库助手。请仅依据已检索到的知识库上下文回答用户问题，
+不得编造上下文不支持的事实。
 
-Give a direct answer first, then add an "Evidence and sources" section with the
-relevant supporting points. If the context does not contain enough information,
-say so clearly.
+请先直接回答，再给出“依据与来源”部分，列出相关支撑要点。若上下文信息不足，
+请明确说明。
 """
 
 knowledge_base_user_prompt = """
-Question:
+问题：
 {query}
 
-Retrieved knowledge-base context:
+检索到的知识库上下文：
 {context_str}
 """
 
 direct_answer_system_prompt = """
-You are a precise and concise general-purpose assistant. Answer the user's
-question directly using your general knowledge. Do not claim to have consulted
-documents or provide sources that were not supplied.
+你是一个严谨、简洁的通用助手。当前未检索到可参考的知识库内容，请直接基于你的
+通用知识回答用户问题。不要声称参考了文档，也不要提供未给出的来源。
 """
 
 direct_answer_user_prompt = """
-Question:
+问题：
 {query}
 """
 

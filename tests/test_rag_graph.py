@@ -28,9 +28,9 @@ def test_generation_messages_include_retrieved_knowledge_base_context(monkeypatc
         "What does the manual say?", ["The product manual says X."]
     )
 
-    assert "knowledge-base context" in messages[0].content.lower()
+    assert "知识库上下文" in messages[0].content
     assert "The product manual says X." in messages[1].content
-    assert "source" in messages[0].content.lower()
+    assert "依据与来源" in messages[0].content
 
 
 def test_generation_messages_omit_context_when_no_document_is_retrieved(monkeypatch):
@@ -38,6 +38,7 @@ def test_generation_messages_omit_context_when_no_document_is_retrieved(monkeypa
 
     messages = rag_graph.build_generation_messages("What does the manual say?", [])
 
-    assert "knowledge-base context" not in messages[0].content.lower()
-    assert "evidence and sources" not in messages[0].content.lower()
+    assert "通用助手" in messages[0].content
+    assert "知识库上下文" not in messages[0].content
+    assert "依据与来源" not in messages[0].content
     assert "What does the manual say?" in messages[1].content
