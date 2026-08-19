@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 import types
@@ -42,3 +43,59 @@ def test_generation_messages_omit_context_when_no_document_is_retrieved(monkeypa
     assert "知识库上下文" not in messages[0].content
     assert "依据与来源" not in messages[0].content
     assert "What does the manual say?" in messages[1].content
+
+
+def test_retrieve_node_uses_standard_query_when_available(monkeypatch):
+    rag_graph = load_rag_graph(monkeypatch)
+    captured = {}
+
+    class FakeRetriever:
+        async def search(self, query, year=None):
+            captured["query"] = query
+            captured["year"] = year
+            return [types.SimpleNamespace(page_content="matched document")]
+
+    monkeypatch.setattr(rag_graph, "retriever", FakeRetriever())
+
+    result = asyncio.run(
+        rag_graph.retrieve_node(
+            {
+                "query": "What commitments were made? Show the original text.",
+                "standard_query": "What commitments did Wang Chuanfu make in the non-compete undertaking?",
+                "year": 2022,
+            }
+        )
+    )
+
+    assert captured == {
+        "query": "What commitments did Wang Chuanfu make in the non-compete undertaking?",
+        "year": 2022,
+    }
+    assert result == {"documents": ["matched document"]}
+
+
+def test_rewrite_node_uses_a_knowledge_base_retrieval_prompt(monkeypatch):
+    rag_graph = load_rag_graph(monkeypatch)
+    captured = {}
+
+    class FakeLlm:
+        async def ainvoke(self, messages):
+            captured["messages"] = messages
+            return types.SimpleNamespace(content="rewritten query")
+
+    monkeypatch.setattr(rag_graph, "llm", FakeLlm())
+
+    result = asyncio.run(
+        rag_graph.rewrite_node(
+            {
+                "query": "Show the original text.",
+                "history_str": "user: When was the non-compete undertaking signed?",
+            }
+        )
+    )
+
+    system_prompt = captured["messages"][0].content
+    assert "知识库检索" in system_prompt
+    assert "实体" in system_prompt
+    assert "原文" in system_prompt
+    assert result == {"standard_query": "rewritten query"}

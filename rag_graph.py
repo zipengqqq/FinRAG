@@ -76,7 +76,14 @@ async def rewrite_node(state: AgentState):
     history_message = state.get('history_str', '当前暂无历史对话')
     query = state['query']
     messages = [
-        SystemMessage(content="请基于给定的历史对话和当前问题，生成规范化检索问句，只返回该问句。"),
+        SystemMessage(content="""你是知识库检索问句改写器。请基于历史对话和当前问题，生成一条用于向量知识库检索的完整问句，而不是回答问题。
+
+规则：
+1. 当前问题包含“这个”“上述”“原文”“全文”等指代或省略信息时，从历史对话补全其指向的对象。
+2. 保留并优先使用历史和当前问题中已有的实体、机构、文档名称、时间、业务术语及用户意图；“原文”“全文”“逐条”等要求必须保留。
+3. 不得编造历史对话中没有的事实、实体或限定条件。
+4. 当前问题本身已完整时，仅做必要的检索化改写，不改变原意。
+5. 只输出改写后的检索问句，不要解释、回答或添加前后缀。"""),
         HumanMessage(content=f"历史对话：{history_message}\n\n当前问题：{query}")
     ]
     response = await llm.ainvoke(messages)
@@ -88,7 +95,7 @@ async def rewrite_node(state: AgentState):
 # 节点 1 -- 检索员
 async def retrieve_node(state: AgentState):
     logger.info(f"正在检索数据")
-    query = state['query']
+    query = state.get('standard_query') or state['query']
     year = state.get('year')
     docs = await retriever.search(query, year=year)
 
