@@ -66,3 +66,6 @@ Neither command manages or removes the external MySQL server or its data.
 - `vector_store.py`: stores document chunks in Milvus.
 - `rag_graph.py`: defines the RAG retrieval workflow.
 - `test.py` and `tests/`: test utilities and automated tests.
+
+## 本项目职责
+本项目知识用来学习RAG项目，有些地方会存在小问题，但只要不涉及RAG核心，即可忽略
