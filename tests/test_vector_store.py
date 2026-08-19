@@ -22,6 +22,16 @@ def test_get_vector_store_connects_to_milvus(monkeypatch):
 def test_init_collection_allows_long_utf8_section_metadata(monkeypatch):
     field_definitions = []
 
+    class FakeCollection:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def create_index(self, field_name, index_params):
+            pass
+
+        def load(self):
+            pass
+
     def fake_field_schema(**kwargs):
         field_definitions.append(kwargs)
         return kwargs
@@ -29,9 +39,41 @@ def test_init_collection_allows_long_utf8_section_metadata(monkeypatch):
     monkeypatch.setattr(vector_store.connections, "connect", lambda **kwargs: None)
     monkeypatch.setattr(vector_store, "FieldSchema", fake_field_schema)
     monkeypatch.setattr(vector_store, "CollectionSchema", lambda fields, description: fields)
-    monkeypatch.setattr(vector_store, "Collection", lambda **kwargs: kwargs)
+    monkeypatch.setattr(vector_store, "Collection", FakeCollection)
 
     vector_store.init_collection()
 
     section_field = next(field for field in field_definitions if field["name"] == "section")
     assert section_field["max_length"] == 1024
+
+
+def test_init_collection_creates_and_loads_ip_hnsw_index(monkeypatch):
+    calls = []
+
+    class FakeCollection:
+        def __init__(self, **kwargs):
+            calls.append(("create_collection", kwargs))
+
+        def create_index(self, field_name, index_params):
+            calls.append(("create_index", field_name, index_params))
+
+        def load(self):
+            calls.append(("load",))
+
+    monkeypatch.setattr(vector_store.connections, "connect", lambda **kwargs: None)
+    monkeypatch.setattr(vector_store, "FieldSchema", lambda **kwargs: kwargs)
+    monkeypatch.setattr(vector_store, "CollectionSchema", lambda fields, description: fields)
+    monkeypatch.setattr(vector_store, "Collection", FakeCollection)
+
+    vector_store.init_collection()
+
+    assert (
+        "create_index",
+        "vector",
+        {
+            "index_type": "HNSW",
+            "metric_type": "IP",
+            "params": {"M": 8, "efConstruction": 64},
+        },
+    ) in calls
+    assert ("load",) in calls

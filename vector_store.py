@@ -73,7 +73,20 @@ def init_collection():
         schema=schema
     )
 
-    logger.info(f"✅ Collection {COLLECTION_NAME} 创建完成（未建HNSW索引）")
+    collection.create_index(
+        field_name="vector",
+        index_params={
+            "index_type": "HNSW",
+            "metric_type": "IP",
+            "params": {
+                "M": 8,
+                "efConstruction": 64,
+            },
+        },
+    )
+    collection.load()
+
+    logger.info(f"✅ Collection {COLLECTION_NAME} 创建完成（HNSW/IP 索引已加载）")
     return collection
 
 
