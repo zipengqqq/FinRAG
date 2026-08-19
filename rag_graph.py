@@ -26,32 +26,51 @@ llm = ChatOpenAI(
 #     streaming=True
 # )
 
-user_prompt = """
-问题：
+knowledge_base_system_prompt = """
+You are a precise and concise assistant. Use the retrieved knowledge-base context
+to answer the user's question. Do not invent facts that are not supported by it.
+
+Give a direct answer first, then add an "Evidence and sources" section with the
+relevant supporting points. If the context does not contain enough information,
+say so clearly.
+"""
+
+knowledge_base_user_prompt = """
+Question:
 {query}
 
-可用上下文：
+Retrieved knowledge-base context:
 {context_str}
-
-请按照系统要求的输出格式作答：先直接回答，不要加任何“结论：”等标签；随后给“依据与来源：”的要点，不要复述问题。
 """
 
-system_prompt = """
-你是一个严谨、简洁的金融资料助手。只依据【上下文片段】回答，不得编造。
-
-输出要求：
-- 先用一到两句话直接回答（不加任何标签，严禁出现“结论：”字样）
-- 随后给出“依据与来源：”的 2–4 条要点
-- 不重复答案，不使用模板化长句，控制在 300 字以内
-- 列表统一使用“- ”，避免嵌套列表与多层级
-- 使用 Markdown 排版；必要强调用 **加粗**
-- 若上下文无答案，输出“根据现有文档无法回答”
-
-示例格式（用于风格约束，勿照抄）：
-直接回答内容。
-依据与来源：
-- 关键原文片段或数据（来源说明）
+direct_answer_system_prompt = """
+You are a precise and concise general-purpose assistant. Answer the user's
+question directly using your general knowledge. Do not claim to have consulted
+documents or provide sources that were not supplied.
 """
+
+direct_answer_user_prompt = """
+Question:
+{query}
+"""
+
+
+def build_generation_messages(query: str, documents: List[str]):
+    if documents:
+        context_str = "\n\n".join(documents)
+        return [
+            SystemMessage(content=knowledge_base_system_prompt),
+            HumanMessage(
+                content=knowledge_base_user_prompt.format(
+                    query=query, context_str=context_str
+                )
+            ),
+        ]
+
+    return [
+        SystemMessage(content=direct_answer_system_prompt),
+        HumanMessage(content=direct_answer_user_prompt.format(query=query)),
+    ]
 
 class AgentState(TypedDict):
     query: str  # 用户的问题
@@ -79,7 +98,7 @@ async def rewrite_node(state: AgentState):
 async def retrieve_node(state: AgentState):
     logger.info(f"正在检索数据")
     query = state['query']
-    year = state['year']
+    year = state.get('year')
     docs = await retriever.search(query, year=year)
 
     return {"documents": [doc.page_content for doc in docs]}
@@ -88,15 +107,7 @@ async def retrieve_node(state: AgentState):
 # 节点 2 -- 写作员
 async def generate_node(state: AgentState, config: RunnableConfig):
     logger.info(f"正在生成回答")
-    context_str = "\n\n".join(state['documents'])
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt.format(
-            query=state['query'],
-            context_str=context_str
-        ))
-    ]
+    messages = build_generation_messages(state['query'], state.get('documents', []))
 
     # 直接调用 ainvoke，LangGraph 会自动挂钩处理流
     response = await llm.ainvoke(messages, config=config)
