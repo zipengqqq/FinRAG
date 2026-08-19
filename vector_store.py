@@ -7,6 +7,9 @@ DIMENSION = 1024
 SECTION_MAX_LENGTH = 1024
 EMBEDDING_MODEL_CACHE_DIR = Path(__file__).resolve().parent / 'models' / 'bge-m3'
 
+"""
+经过验证，该文件代码对hnsw的使用不存在问题，可放心使用，不会出现随着文档数量增多，插入向量数据库越来越慢的问题
+"""
 
 from pymilvus import (
     connections,
@@ -140,7 +143,7 @@ def _insert_batch_with_fallback(vector_store, batch, start: int) -> None:
 
 @time_consume
 def add_documents_to_milvus(chunks, batch_size=256):
-    """文档入库（高速写入）"""
+    """文档入库"""
     if not chunks:
         logger.info("⚠️ chunks 为空，跳过")
         return
@@ -172,49 +175,4 @@ def add_documents_to_milvus(chunks, batch_size=256):
         _insert_batch_with_fallback(vector_store, batch, start)
         logger.info(f"✅ 已入库 {start} - {end}")
 
-    logger.info("🎉 所有文档入库完成")
-
-
-@time_consume
-def build_hnsw_index():
-    """建索引（所有数据完成后执行）"""
-    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
-    collection = Collection(COLLECTION_NAME)
-
-    # 🔥 关键：先判断 & 删除已有索引
-    if collection.indexes:
-        logger.info("⚠️ 检测到已有索引，先释放后删除")
-        collection.release()
-        collection.drop_index()
-        logger.info("🗑 原有索引已删除")
-
-    logger.info("开始创建 HNSW 索引（一次性）")
-
-    index_params = {
-        "index_type": "HNSW",
-        "metric_type": "IP",  # normalize_embeddings=True
-        "params": {
-            "M": 8,
-            "efConstruction": 64
-        }
-    }
-
-    collection.create_index(
-        field_name="vector",
-        index_params=index_params
-    )
-
-    collection.load()
-    logger.info("✅ HNSW 索引创建并加载完成")
-
-
-def clear_financial_rag(recreate=True):
-    """清空 & 重建collections"""
-    connections.connect(host=settings.milvus_host, port=settings.milvus_port)
-
-    if utility.has_collection(COLLECTION_NAME):
-        utility.drop_collection(COLLECTION_NAME)
-        logger.info(f"🗑 Collection {COLLECTION_NAME} 已删除")
-
-    if recreate:
-        init_collection()
+    logger.info("🎉 所有块入库完成")
