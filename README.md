@@ -61,7 +61,7 @@ Neither command manages or removes the external MySQL server or its data.
 
 - `main.py`: FastAPI application entry point.
 - `download_model.py`: downloads the reranking and embedding models.
-- `pdf_to_md.py` and `marker_parse.py`: convert PDF documents to Markdown.
+- `marker_parse.py`: converts PDF documents to Markdown.
 - `chunker.py`: splits Markdown content into `List[Document]` chunks.
 - `vector_store.py`: stores document chunks in Milvus.
 - `rag_graph.py`: defines the RAG retrieval workflow.
