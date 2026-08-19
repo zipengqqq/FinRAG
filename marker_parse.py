@@ -11,25 +11,30 @@ from utils.logger_util import logger
 
 
 def _set_cn_env(cache_dir: str, use_gpu: bool):
+    device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if device == "cuda" else torch.float32
+
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     os.environ.setdefault("HF_HOME", cache_dir)
     os.environ.setdefault("HUGGINGFACE_HUB_CACHE", cache_dir)
     os.environ.setdefault("TRANSFORMERS_CACHE", cache_dir)
     os.environ.setdefault("TORCH_HOME", str(Path(cache_dir) / "torch"))
-    os.environ.setdefault("TORCH_DEVICE", "cuda" if use_gpu and torch.cuda.is_available() else "cpu")
-    os.environ.setdefault("MODEL_DTYPE", "float16" if use_gpu and torch.cuda.is_available() else "float32")
-    os.environ.setdefault("TORCH_DEVICE_MODEL", "cuda" if use_gpu and torch.cuda.is_available() else "cpu")
+    os.environ["TORCH_DEVICE"] = device
+    os.environ["MODEL_DTYPE"] = "float16" if device == "cuda" else "float32"
+    os.environ["TORCH_DEVICE_MODEL"] = device
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-    os.environ.setdefault("SURYA_DEVICE", "cpu")
+    os.environ["SURYA_DEVICE"] = device
     os.environ.setdefault("OMP_NUM_THREADS", "1")
-    if use_gpu and torch.cuda.is_available():
+    if device == "cuda":
         torch.backends.cudnn.benchmark = True
         try:
             torch.set_float32_matmul_precision("medium")
         except Exception:
             pass
+
+    return device, dtype
 
 @time_consume
 def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str | None = None, force_ocr: bool = False, disable_image_extraction: bool = False) -> str:
@@ -37,7 +42,7 @@ def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str 
     cache_dir = str(Path(__file__).parent / ".cache" / "huggingface")
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    _set_cn_env(cache_dir, True)
+    device, dtype = _set_cn_env(cache_dir, True)
 
     config = {"output_format": "markdown"}
     logger.info(f"设备: {os.environ.get('TORCH_DEVICE')}, dtype: {os.environ.get('MODEL_DTYPE')}")
@@ -51,7 +56,7 @@ def parse_pdf_marker(pdf_path: str, output_dir: str = "output", page_range: str 
         config["disable_image_extraction"] = True
 
     config_parser = ConfigParser(config)
-    artifact_dict = create_model_dict()
+    artifact_dict = create_model_dict(device=device, dtype=dtype)
     converter = PdfConverter(
         config=config_parser.generate_config_dict(),
         artifact_dict=artifact_dict,

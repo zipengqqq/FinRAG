@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric
+from sqlalchemy import BigInteger, Column, Integer, String, DateTime, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 
 
@@ -7,7 +7,7 @@ Base = declarative_base()
 class FileModel(Base):
     __tablename__ = 'file'
 
-    id = Column(Integer, primary_key=True, nullable=True, comment='文件ID')
+    id = Column(BigInteger, primary_key=True, autoincrement=False, comment='文件ID')
     minio_url = Column(String(200), nullable=True, comment='文件minio地址')
     status = Column(Integer, nullable=True, comment='文件状态；0文件待解析，1文件正在解析，2文件解析成功，3文件解析失败')
     file_name = Column(String(50), nullable=True, comment='文件名')

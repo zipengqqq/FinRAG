@@ -39,6 +39,10 @@ def initialize_database(uri: str) -> str:
     target_engine = create_engine(uri)
     try:
         FileModel.metadata.create_all(target_engine)
+        with target_engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE `file` MODIFY COLUMN `id` BIGINT NOT NULL COMMENT '文件ID'"
+            )
     finally:
         target_engine.dispose()
     return database_name

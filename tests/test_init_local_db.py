@@ -5,7 +5,9 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from sqlalchemy import BigInteger
 
+from entity.file_model import FileModel
 from scripts import init_local_db
 from scripts.init_local_db import database_name_from_uri
 
@@ -101,9 +103,17 @@ def test_initialize_database_creates_database_then_file_schema(monkeypatch):
         "CREATE DATABASE IF NOT EXISTS `fin_rag` "
         "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
     ]
+    assert target_engine.statements == [
+        "ALTER TABLE `file` MODIFY COLUMN `id` BIGINT NOT NULL COMMENT '文件ID'"
+    ]
     assert schema_engines == [target_engine]
     assert server_engine.disposed
     assert target_engine.disposed
+
+
+def test_file_model_uses_bigint_for_snowflake_ids():
+    assert isinstance(FileModel.__table__.c.id.type, BigInteger)
+    assert FileModel.__table__.c.id.autoincrement is False
 
 
 def test_main_uses_configured_uri_and_prints_derived_database_name(monkeypatch, capsys):

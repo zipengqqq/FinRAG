@@ -45,7 +45,7 @@ def get_embedding_model():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     _embedding_model = HuggingFaceEmbeddings(
-        model_name=real_model_path,
+        model_name=str(real_model_path),
         model_kwargs={'device': device},
         encode_kwargs={'normalize_embeddings': True},  # 对应 IP
     )
