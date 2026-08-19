@@ -63,7 +63,7 @@ def init_collection():
         FieldSchema(name='vector', dtype=DataType.FLOAT_VECTOR, dim=DIMENSION),
         FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=200),
         FieldSchema(name='year', dtype=DataType.INT16),
-        FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=200),
+        FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=1024),
     ]
 
     schema = CollectionSchema(fields, description="金融财报 RAG 知识库")
@@ -92,6 +92,7 @@ def get_vector_store():
         embedding_function=embedding,
         collection_name=COLLECTION_NAME,
         connection_args={"uri": uri},  # ✅ 正确方式
+        auto_id=True,
         text_field='text',
         vector_field='vector',
     )
