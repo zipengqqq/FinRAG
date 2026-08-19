@@ -18,13 +18,6 @@ llm = ChatOpenAI(
     temperature=0.7,
     streaming=True  # 开启流式
 )
-# llm = ChatOpenAI(
-#     model='gpt-5.1',
-#     api_key='sk-kKd9aJu7rMIulIun8AiqQNyqG3xhz6rhVLGoKu4orsSqDfz4',
-#     base_url='https://api.lingyaai.cn/v1',
-#     temperature=1,
-#     streaming=True
-# )
 
 knowledge_base_system_prompt = """
 你是一个严谨、简洁的通用知识库助手。请仅依据已检索到的知识库上下文回答用户问题，
