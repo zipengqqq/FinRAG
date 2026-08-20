@@ -71,13 +71,18 @@ async def assistant(req: AskRequest):
 
 @app.post("/insert", summary="文本插入到向量数据库")
 async def ingest(req: InsertRequest):
-    chunks = split_md_content(req.text, source_filename=req.source, year=req.year)
+    chunks = split_md_content(req.text, source_filename=req.source, metadata=req.metadata)
     add_documents_to_milvus(chunks)
     return JSONResponse(status_code=200, content={'message': 'success'})
 
 @app.post("/search", summary="向量数据库检索")
 async def search(req: SearchRequest):
-    docs = await graph_retriever.search(req.query, year=req.year, source=req.source, top_k=req.top_k)
+    docs = await graph_retriever.search(
+        req.query,
+        source=req.source,
+        filters=req.filters,
+        top_k=req.top_k,
+    )
     out = []
     for d in docs:
         out.append(DocResult(
@@ -85,7 +90,7 @@ async def search(req: SearchRequest):
             rerank_score=d.metadata.get("rerank_score"),
             source=d.metadata.get("source"),
             section=d.metadata.get("section"),
-            year=d.metadata.get("year"),
+            metadata=d.metadata.get("metadata", {}),
         ))
     return {"documents": out}
 

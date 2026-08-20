@@ -12,7 +12,7 @@ from utils.logger_util import logger
 
 load_dotenv()
 llm = ChatOpenAI(
-    model="deepseek-chat",
+    model=os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash"),
     api_key=os.getenv('DEEPSEEK_API_KEY'),
     base_url=os.getenv('DEEPSEEK_BASE_URL'),
     temperature=0.7,
@@ -67,7 +67,6 @@ class AgentState(TypedDict):
     query: str  # 用户的问题
     documents: List[str]  # 检索到的文档内容
     answer: str  # 最终生成的答案
-    year: int  # 年份
     standard_query: str # 标准化 query
     history_str: str # 历史对话
 
@@ -96,8 +95,7 @@ async def rewrite_node(state: AgentState):
 async def retrieve_node(state: AgentState):
     logger.info(f"正在检索数据")
     query = state.get('standard_query') or state['query']
-    year = state.get('year')
-    docs = await retriever.search(query, year=year)
+    docs = await retriever.search(query)
 
     return {"documents": [doc.page_content for doc in docs]}
 

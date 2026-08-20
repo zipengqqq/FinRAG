@@ -269,15 +269,7 @@ class Service():
 
     def _step_ingest_md(self, md_path: str, filename: str):
         text = Path(md_path).read_text(encoding="utf-8")
-        year = None
-        for token in Path(filename).stem.replace("_", "-").split("-"):
-            if token.isdigit() and len(token) == 4 and token.startswith(("19", "20")):
-                try:
-                    year = int(token)
-                    break
-                except Exception:
-                    pass
-        chunks = split_md_content(text, source_filename=filename, year=year if year is not None else 0)
+        chunks = split_md_content(text, source_filename=filename, metadata={})
         add_documents_to_milvus(chunks)
 
     def _step_update_status_by_id(self, uid: int, status: int):
