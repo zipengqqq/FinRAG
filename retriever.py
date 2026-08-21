@@ -1,5 +1,6 @@
 import json
 import math
+import re
 from pathlib import Path
 
 import torch
@@ -16,6 +17,13 @@ RERANKER_MODEL_CACHE_DIR = Path(__file__).resolve().parent / "models" / "bge-rer
 RERANKER_MODEL_PATH = resolve_model_path(
     RERANKER_MODEL_CACHE_DIR, "Xorbits/bge-reranker-base"
 )
+SEMANTIC_CANDIDATE_COUNT = 200
+SEMANTIC_RERANK_CANDIDATE_COUNT = 40
+LEXICAL_RERANK_CANDIDATE_COUNT = 40
+RERANK_CANDIDATE_COUNT = (
+    SEMANTIC_RERANK_CANDIDATE_COUNT + LEXICAL_RERANK_CANDIDATE_COUNT
+)
+_WORD_PATTERN = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]+")
 
 
 class AdvancedRetriever:
@@ -49,6 +57,97 @@ class AdvancedRetriever:
             doc.metadata["rerank_score"] = score
             final_docs.append(doc)
         return final_docs
+
+    @staticmethod
+    def _lexical_terms(text):
+        """提取不依赖领域词典的中英文检索词项。"""
+        terms = set()
+        for token in _WORD_PATTERN.findall(text.lower()):
+            if all("\u4e00" <= character <= "\u9fff" for character in token):
+                if len(token) == 1:
+                    terms.add(token)
+                else:
+                    terms.update(token[index : index + 2] for index in range(len(token) - 1))
+            else:
+                terms.add(token)
+        return terms
+
+    @classmethod
+    def _lexical_score(cls, query, document):
+        """计算查询与文档的通用词项重合度。"""
+        return len(cls._lexical_terms(query) & cls._lexical_terms(document.page_content))
+
+    @classmethod
+    def _lexical_scores(cls, query, documents):
+        """按候选集内词项稀有度计算通用词项匹配分数。"""
+        query_terms = cls._lexical_terms(query)
+        document_terms = [cls._lexical_terms(document.page_content) for document in documents]
+        document_frequency = {term: 0 for term in query_terms}
+        for terms in document_terms:
+            for term in query_terms & terms:
+                document_frequency[term] += 1
+
+        document_count = len(documents)
+        return [
+            sum(
+                1 + math.log((document_count + 1) / (document_frequency[term] + 1))
+                for term in query_terms & terms
+            )
+            for terms in document_terms
+        ]
+
+    @staticmethod
+    def _document_key(document):
+        """为候选去重生成稳定键，保留同一父记录的不同子块。"""
+        parent_id = document.metadata.get("parent_id")
+        chunk_index = document.metadata.get("chunk_index")
+        if parent_id is not None and chunk_index is not None:
+            return f"{parent_id}:{chunk_index}"
+        return (
+            document.metadata.get("source"),
+            document.metadata.get("section"),
+            document.page_content,
+        )
+
+    @staticmethod
+    def _result_key(document, index):
+        """为最终结果分组，避免同一文档章节的近重复内容占满结果。"""
+        source = document.metadata.get("source")
+        section = document.metadata.get("section")
+        if source and section:
+            return ("section", source, section)
+
+        parent_id = document.metadata.get("parent_id")
+        return ("parent", parent_id) if parent_id else ("legacy", index)
+
+    @classmethod
+    def _select_rerank_candidates(cls, query, semantic_docs):
+        """合并有限语义候选与词项候选，供重排模型统一排序。"""
+        semantic_candidates = semantic_docs[:SEMANTIC_RERANK_CANDIDATE_COUNT]
+        lexical_scores = cls._lexical_scores(query, semantic_docs)
+        lexical_candidates = sorted(
+            (
+                (score, index, document)
+                for index, (score, document) in enumerate(
+                    zip(lexical_scores, semantic_docs)
+                )
+            ),
+            key=lambda item: (-item[0], item[1]),
+        )
+        lexical_candidates = [
+            document
+            for score, _, document in lexical_candidates[:LEXICAL_RERANK_CANDIDATE_COUNT]
+            if score > 0
+        ]
+
+        unique_candidates = []
+        candidate_keys = set()
+        for document in semantic_candidates + lexical_candidates:
+            key = cls._document_key(document)
+            if key not in candidate_keys:
+                candidate_keys.add(key)
+                unique_candidates.append(document)
+        return unique_candidates
 
     @staticmethod
     def _build_filter_expr(source=None, filters=None):
@@ -145,16 +244,21 @@ class AdvancedRetriever:
         filter_expr = self._build_filter_expr(source=source, filters=filters)
         initial_docs = vector_store.similarity_search(
             query,
-            k=20,
+            k=SEMANTIC_CANDIDATE_COUNT,
             expr=filter_expr,
-            param={"metric_type": "IP", "params": {"ef": 64}},
+            param={
+                "metric_type": "IP",
+                "params": {"ef": max(64, SEMANTIC_CANDIDATE_COUNT)},
+            },
         )
-        reranked_docs = self.rerank(query, initial_docs, top_k=20)
+        rerank_candidates = self._select_rerank_candidates(query, initial_docs)
+        reranked_docs = self.rerank(
+            query, rerank_candidates, top_k=RERANK_CANDIDATE_COUNT
+        )
 
         parent_hits_by_key = {}
         for index, document in enumerate(reranked_docs):
-            parent_id = document.metadata.get("parent_id")
-            parent_key = parent_id if parent_id else f"legacy:{index}"
+            parent_key = self._result_key(document, index)
             rerank_score = document.metadata.get("rerank_score", 0.0)
             previous_hit = parent_hits_by_key.get(parent_key)
             if previous_hit is None or rerank_score > previous_hit[1]:

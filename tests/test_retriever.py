@@ -87,11 +87,13 @@ class FakeVectorStore:
 
     def similarity_search(self, query, **kwargs):
         self.searches.append((query, kwargs))
-        return self.initial_docs
+        return self.initial_docs[: kwargs["k"]]
 
 
-def _document(content, *, parent_id=None, chunk_index=None, source="report.md"):
-    metadata = {"source": source, "section": "章节"}
+def _document(
+    content, *, parent_id=None, chunk_index=None, source="report.md", section="章节"
+):
+    metadata = {"source": source, "section": section}
     if parent_id is not None:
         metadata.update(
             document_id="document-1",
@@ -103,11 +105,11 @@ def _document(content, *, parent_id=None, chunk_index=None, source="report.md"):
     return Document(page_content=content, metadata=metadata)
 
 
-def _record(content, parent_id, chunk_index):
+def _record(content, parent_id, chunk_index, section="章节"):
     return {
         "text": content,
         "source": "report.md",
-        "section": "章节",
+        "section": section,
         "document_id": "document-1",
         "parent_id": parent_id,
         "chunk_index": chunk_index,
@@ -165,13 +167,17 @@ def test_search_returns_all_chunks_of_the_matched_parent_in_chunk_order(
 def test_search_orders_parent_records_by_their_highest_rerank_score(
     retriever_module, monkeypatch
 ):
-    lower_score = _document("父记录 A", parent_id="parent-a", chunk_index=0)
-    higher_score = _document("父记录 B", parent_id="parent-b", chunk_index=0)
+    lower_score = _document(
+        "父记录 A", parent_id="parent-a", chunk_index=0, section="章节 A"
+    )
+    higher_score = _document(
+        "父记录 B", parent_id="parent-b", chunk_index=0, section="章节 B"
+    )
     store = FakeVectorStore(
         [lower_score, higher_score],
         {
-            "parent-a": [_record("A 完整内容", "parent-a", 0)],
-            "parent-b": [_record("B 完整内容", "parent-b", 0)],
+            "parent-a": [_record("A 完整内容", "parent-a", 0, "章节 A")],
+            "parent-b": [_record("B 完整内容", "parent-b", 0, "章节 B")],
         },
     )
     monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
@@ -187,9 +193,15 @@ def test_search_orders_parent_records_by_their_highest_rerank_score(
 def test_search_keeps_the_highest_scored_hit_when_a_parent_appears_multiple_times(
     retriever_module, monkeypatch
 ):
-    lower_scored_hit = _document("父记录 A 低分", parent_id="parent-a", chunk_index=0)
-    other_parent_hit = _document("父记录 B", parent_id="parent-b", chunk_index=0)
-    higher_scored_hit = _document("父记录 A 高分", parent_id="parent-a", chunk_index=1)
+    lower_scored_hit = _document(
+        "父记录 A 低分", parent_id="parent-a", chunk_index=0, section="章节 A"
+    )
+    other_parent_hit = _document(
+        "父记录 B", parent_id="parent-b", chunk_index=0, section="章节 B"
+    )
+    higher_scored_hit = _document(
+        "父记录 A 高分", parent_id="parent-a", chunk_index=1, section="章节 A"
+    )
     for document, score in (
         (lower_scored_hit, 0.1),
         (other_parent_hit, 0.8),
@@ -200,8 +212,8 @@ def test_search_keeps_the_highest_scored_hit_when_a_parent_appears_multiple_time
     store = FakeVectorStore(
         [lower_scored_hit, other_parent_hit, higher_scored_hit],
         {
-            "parent-a": [_record("A 完整内容", "parent-a", 0)],
-            "parent-b": [_record("B 完整内容", "parent-b", 0)],
+            "parent-a": [_record("A 完整内容", "parent-a", 0, "章节 A")],
+            "parent-b": [_record("B 完整内容", "parent-b", 0, "章节 B")],
         },
     )
     monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
@@ -233,15 +245,90 @@ def test_search_builds_source_and_json_metadata_filter_expression(
         (
             "安装说明",
             {
-                "k": 20,
+                "k": 200,
                 "expr": (
                     'source == "manual.md" and metadata["category"] == "guide" '
                     'and metadata["report_year"] == 2024 and metadata["published"] == true'
                 ),
-                "param": {"metric_type": "IP", "params": {"ef": 64}},
+                "param": {"metric_type": "IP", "params": {"ef": 200}},
             },
         )
     ]
+
+
+def test_search_promotes_lexically_matching_document_from_expanded_candidates(
+    retriever_module, monkeypatch
+):
+    unrelated = [
+        _document(f"第 {index} 份无关材料") for index in range(79)
+    ]
+    matching = _document("身份验证令牌配置完成后即可调用接口。")
+    store = FakeVectorStore(unrelated + [matching])
+    monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
+    retriever = retriever_module.AdvancedRetriever()
+    rerank_inputs = []
+
+    def rerank(query, docs, top_k):
+        rerank_inputs.extend(docs)
+        for document in docs:
+            document.metadata["rerank_score"] = float(document is matching)
+        return sorted(docs, key=lambda document: document.metadata["rerank_score"], reverse=True)
+
+    retriever.rerank = rerank
+
+    results = asyncio.run(
+        retriever.search("如何配置身份验证令牌", top_k=1)
+    )
+
+    assert store.searches[0][1]["k"] == 200
+    assert matching in rerank_inputs
+    assert len(rerank_inputs) <= 80
+    assert results == [matching]
+
+
+def test_search_prioritizes_rare_lexical_terms_over_common_terms(
+    retriever_module, monkeypatch
+):
+    common_matches = [_document("系统服务启动配置完成") for _ in range(79)]
+    matching = _document("身份验证令牌")
+    store = FakeVectorStore(common_matches + [matching])
+    monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
+    retriever = retriever_module.AdvancedRetriever()
+    rerank_inputs = []
+
+    def rerank(query, docs, top_k):
+        rerank_inputs.extend(docs)
+        for document in docs:
+            document.metadata["rerank_score"] = float(document is matching)
+        return sorted(docs, key=lambda document: document.metadata["rerank_score"], reverse=True)
+
+    retriever.rerank = rerank
+
+    results = asyncio.run(
+        retriever.search("系统服务启动配置身份验证令牌", top_k=1)
+    )
+
+    assert matching in rerank_inputs
+    assert results == [matching]
+
+
+def test_search_diversifies_results_by_source_and_section(retriever_module, monkeypatch):
+    first = _document("同一章节的首个命中")
+    duplicate = _document("同一章节的重复命中")
+    other_section = Document(
+        page_content="另一个章节的命中",
+        metadata={"source": "report.md", "section": "另一章节"},
+    )
+    for document, score in ((first, 0.9), (duplicate, 0.8), (other_section, 0.7)):
+        document.metadata["rerank_score"] = score
+    store = FakeVectorStore([first, duplicate, other_section])
+    monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
+    retriever = retriever_module.AdvancedRetriever()
+    retriever.rerank = lambda query, docs, top_k: docs
+
+    results = asyncio.run(retriever.search("查询", top_k=2))
+
+    assert results == [first, other_section]
 
 
 @pytest.mark.parametrize("filters", [{"bad-name": "guide"}, {"category": ["guide"]}])
