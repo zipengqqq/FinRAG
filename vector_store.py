@@ -2,9 +2,11 @@ from pathlib import Path
 
 import torch
 
-COLLECTION_NAME = 'financial_rag'
+COLLECTION_NAME = 'general_rag'
 DIMENSION = 1024
-SECTION_MAX_LENGTH = 1024
+SOURCE_MAX_LENGTH = 1024
+SECTION_MAX_LENGTH = 2048
+IDENTIFIER_MAX_LENGTH = 64
 EMBEDDING_MODEL_CACHE_DIR = Path(__file__).resolve().parent / 'models' / 'bge-m3'
 
 """
@@ -66,12 +68,16 @@ def init_collection():
         FieldSchema(name='pk', dtype=DataType.INT64, is_primary=True, auto_id=True),
         FieldSchema(name='text', dtype=DataType.VARCHAR, max_length=65535),
         FieldSchema(name='vector', dtype=DataType.FLOAT_VECTOR, dim=DIMENSION),
-        FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=200),
-        FieldSchema(name='year', dtype=DataType.INT16),
+        FieldSchema(name='document_id', dtype=DataType.VARCHAR, max_length=IDENTIFIER_MAX_LENGTH),
+        FieldSchema(name='source', dtype=DataType.VARCHAR, max_length=SOURCE_MAX_LENGTH),
         FieldSchema(name='section', dtype=DataType.VARCHAR, max_length=SECTION_MAX_LENGTH),
+        FieldSchema(name='parent_id', dtype=DataType.VARCHAR, max_length=IDENTIFIER_MAX_LENGTH),
+        FieldSchema(name='chunk_index', dtype=DataType.INT32),
+        FieldSchema(name='chunk_count', dtype=DataType.INT32),
+        FieldSchema(name='metadata', dtype=DataType.JSON),
     ]
 
-    schema = CollectionSchema(fields, description="金融财报 RAG 知识库")
+    schema = CollectionSchema(fields, description="通用 RAG 知识库")
 
     collection = Collection(
         name=COLLECTION_NAME,
@@ -110,6 +116,7 @@ def get_vector_store():
         embedding_function=embedding,
         collection_name=COLLECTION_NAME,
         connection_args={"uri": uri},  # ✅ 正确方式
+        consistency_level="Bounded",
         auto_id=True,
         text_field='text',
         vector_field='vector',
@@ -117,9 +124,18 @@ def get_vector_store():
     return _vector_store
 
 
-def _is_section_within_limit(chunk) -> bool:
-    section = str(chunk.metadata.get('section', ''))
-    return len(section.encode('utf-8')) <= SECTION_MAX_LENGTH
+def _is_chunk_metadata_within_limits(chunk) -> bool:
+    metadata = chunk.metadata
+    field_limits = {
+        'source': SOURCE_MAX_LENGTH,
+        'section': SECTION_MAX_LENGTH,
+        'document_id': IDENTIFIER_MAX_LENGTH,
+        'parent_id': IDENTIFIER_MAX_LENGTH,
+    }
+    return all(
+        len(str(metadata.get(field_name, '')).encode('utf-8')) <= max_length
+        for field_name, max_length in field_limits.items()
+    )
 
 
 def _insert_batch_with_fallback(vector_store, batch, start: int) -> None:
@@ -153,11 +169,11 @@ def add_documents_to_milvus(chunks, batch_size=256):
     if not utility.has_collection(COLLECTION_NAME):
         init_collection()
 
-    valid_chunks = [chunk for chunk in chunks if _is_section_within_limit(chunk)]
+    valid_chunks = [chunk for chunk in chunks if _is_chunk_metadata_within_limits(chunk)]
     skipped_count = len(chunks) - len(valid_chunks)
     if skipped_count:
         logger.warning(
-            f"Skipping {skipped_count} chunks with section longer than {SECTION_MAX_LENGTH} bytes"
+            f"Skipping {skipped_count} chunks with oversized collection metadata"
         )
 
     if not valid_chunks:
