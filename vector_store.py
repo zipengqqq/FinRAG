@@ -28,6 +28,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from modelscope import snapshot_download
 
 from decorator.time_consume import time_consume
+from keyword_index import get_keyword_index
 from utils.logger_util import logger
 from utils.model_paths import resolve_model_path
 from utils.settings import settings
@@ -141,20 +142,23 @@ def _is_chunk_metadata_within_limits(chunk) -> bool:
 def _insert_batch_with_fallback(vector_store, batch, start: int) -> None:
     try:
         vector_store.add_documents(batch)
-        return
+        return list(batch)
     except MilvusException as exc:
         logger.warning(
             f"Batch insert failed {start} - {start + len(batch)}; retrying individually: {exc}"
         )
 
+    inserted_chunks = []
     for offset, chunk in enumerate(batch):
         try:
             vector_store.add_documents([chunk])
+            inserted_chunks.append(chunk)
         except MilvusException as exc:
             section = str(chunk.metadata.get('section', ''))
             logger.error(
                 f"Skipping invalid chunk {start + offset}, section={section[:100]!r}: {exc}"
             )
+    return inserted_chunks
 
 
 @time_consume
@@ -185,10 +189,17 @@ def add_documents_to_milvus(chunks, batch_size=256):
 
     logger.info(f"🚀 开始入库，共 {total} 条")
 
+    inserted_chunks = []
     for start in range(0, total, batch_size):
         end = min(start + batch_size, total)
         batch = valid_chunks[start:end]
-        _insert_batch_with_fallback(vector_store, batch, start)
+        inserted_chunks.extend(_insert_batch_with_fallback(vector_store, batch, start))
         logger.info(f"✅ 已入库 {start} - {end}")
+
+    try:
+        get_keyword_index().upsert_documents(inserted_chunks)
+    except Exception as exc:
+        logger.error(f"关键词索引写入失败: {exc}")
+        raise
 
     logger.info("🎉 所有块入库完成")

@@ -2,3 +2,4 @@
 .worktrees/
 .env
 /output/
+/data/keyword_index.db

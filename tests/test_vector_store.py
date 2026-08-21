@@ -6,6 +6,15 @@ from pymilvus.exceptions import MilvusException
 import vector_store
 
 
+@pytest.fixture(autouse=True)
+def _disable_keyword_index(monkeypatch):
+    monkeypatch.setattr(
+        vector_store,
+        "get_keyword_index",
+        lambda: SimpleNamespace(upsert_documents=lambda chunks: None),
+    )
+
+
 def test_get_vector_store_connects_to_milvus(monkeypatch):
     monkeypatch.setattr(vector_store, "_vector_store", None)
     monkeypatch.setattr(vector_store, "get_embedding_model", lambda: object())
@@ -161,3 +170,40 @@ def test_add_documents_retries_failed_batch_one_chunk_at_a_time(monkeypatch):
     vector_store.add_documents_to_milvus([valid_chunk, invalid_chunk])
 
     assert stored_chunks == [valid_chunk]
+
+
+def test_add_documents_writes_only_valid_milvus_chunks_to_keyword_index(monkeypatch):
+    valid_chunk = SimpleNamespace(
+        metadata={
+            "source": "guide.md",
+            "section": "安装",
+            "document_id": "doc",
+            "parent_id": "parent",
+        }
+    )
+    invalid_chunk = SimpleNamespace(
+        metadata={
+            "source": "x" * 1025,
+            "section": "安装",
+            "document_id": "doc",
+            "parent_id": "parent",
+        }
+    )
+    indexed = []
+
+    monkeypatch.setattr(vector_store.connections, "connect", lambda **kwargs: None)
+    monkeypatch.setattr(vector_store.utility, "has_collection", lambda name: True)
+    monkeypatch.setattr(
+        vector_store,
+        "get_vector_store",
+        lambda: SimpleNamespace(add_documents=lambda chunks: None),
+    )
+    monkeypatch.setattr(
+        vector_store,
+        "get_keyword_index",
+        lambda: SimpleNamespace(upsert_documents=lambda chunks: indexed.extend(chunks)),
+    )
+
+    vector_store.add_documents_to_milvus([valid_chunk, invalid_chunk])
+
+    assert indexed == [valid_chunk]

@@ -36,13 +36,18 @@ def retriever_module(monkeypatch):
 
     fake_decorator = types.ModuleType("decorator.time_consume")
     fake_decorator.time_consume = lambda func: func
-    fake_logger = types.SimpleNamespace(info=lambda *args, **kwargs: None)
+    fake_logger = types.SimpleNamespace(
+        info=lambda *args, **kwargs: None,
+        warning=lambda *args, **kwargs: None,
+    )
     fake_logger_util = types.ModuleType("utils.logger_util")
     fake_logger_util.logger = fake_logger
     fake_model_paths = types.ModuleType("utils.model_paths")
     fake_model_paths.resolve_model_path = lambda *args: "fake-reranker"
     fake_vector_store = types.ModuleType("vector_store")
     fake_vector_store.get_vector_store = lambda: None
+    fake_keyword_index = types.ModuleType("keyword_index")
+    fake_keyword_index.get_keyword_index = lambda: None
 
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
@@ -50,6 +55,7 @@ def retriever_module(monkeypatch):
     monkeypatch.setitem(sys.modules, "utils.logger_util", fake_logger_util)
     monkeypatch.setitem(sys.modules, "utils.model_paths", fake_model_paths)
     monkeypatch.setitem(sys.modules, "vector_store", fake_vector_store)
+    monkeypatch.setitem(sys.modules, "keyword_index", fake_keyword_index)
 
     module_name = "retriever_under_test"
     sys.modules.pop(module_name, None)
@@ -245,71 +251,48 @@ def test_search_builds_source_and_json_metadata_filter_expression(
         (
             "安装说明",
             {
-                "k": 200,
+                "k": 40,
                 "expr": (
                     'source == "manual.md" and metadata["category"] == "guide" '
                     'and metadata["report_year"] == 2024 and metadata["published"] == true'
                 ),
-                "param": {"metric_type": "IP", "params": {"ef": 200}},
+                "param": {"metric_type": "IP", "params": {"ef": 64}},
             },
         )
     ]
 
 
-def test_search_promotes_lexically_matching_document_from_expanded_candidates(
+def test_search_reranks_keyword_hit_absent_from_vector_results(
     retriever_module, monkeypatch
 ):
-    unrelated = [
-        _document(f"第 {index} 份无关材料") for index in range(79)
-    ]
-    matching = _document("身份验证令牌配置完成后即可调用接口。")
-    store = FakeVectorStore(unrelated + [matching])
+    semantic = _document("语义命中", parent_id="semantic", chunk_index=0)
+    keyword_only = _document("精确编号 ABC-123", parent_id="keyword", chunk_index=0)
+    store = FakeVectorStore([semantic])
     monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
+    monkeypatch.setattr(
+        retriever_module,
+        "get_keyword_index",
+        lambda: types.SimpleNamespace(search=lambda **kwargs: [keyword_only]),
+    )
     retriever = retriever_module.AdvancedRetriever()
     rerank_inputs = []
+    retriever.rerank = lambda query, docs, top_k: rerank_inputs.extend(docs) or docs
 
-    def rerank(query, docs, top_k):
-        rerank_inputs.extend(docs)
-        for document in docs:
-            document.metadata["rerank_score"] = float(document is matching)
-        return sorted(docs, key=lambda document: document.metadata["rerank_score"], reverse=True)
+    asyncio.run(retriever.search("ABC-123", top_k=2))
 
-    retriever.rerank = rerank
+    assert keyword_only in rerank_inputs
 
-    results = asyncio.run(
-        retriever.search("如何配置身份验证令牌", top_k=1)
+
+def test_fuse_candidates_uses_rrf_and_deduplicates_stable_chunk_key(retriever_module):
+    shared = _document("共同命中", parent_id="shared", chunk_index=0)
+    vector_only = _document("向量命中", parent_id="vector", chunk_index=0)
+    keyword_only = _document("词项命中", parent_id="keyword", chunk_index=0)
+
+    fused = retriever_module.AdvancedRetriever._fuse_candidates(
+        [vector_only, shared], [shared, keyword_only]
     )
 
-    assert store.searches[0][1]["k"] == 200
-    assert matching in rerank_inputs
-    assert len(rerank_inputs) <= 80
-    assert results == [matching]
-
-
-def test_search_prioritizes_rare_lexical_terms_over_common_terms(
-    retriever_module, monkeypatch
-):
-    common_matches = [_document("系统服务启动配置完成") for _ in range(79)]
-    matching = _document("身份验证令牌")
-    store = FakeVectorStore(common_matches + [matching])
-    monkeypatch.setattr(retriever_module, "get_vector_store", lambda: store)
-    retriever = retriever_module.AdvancedRetriever()
-    rerank_inputs = []
-
-    def rerank(query, docs, top_k):
-        rerank_inputs.extend(docs)
-        for document in docs:
-            document.metadata["rerank_score"] = float(document is matching)
-        return sorted(docs, key=lambda document: document.metadata["rerank_score"], reverse=True)
-
-    retriever.rerank = rerank
-
-    results = asyncio.run(
-        retriever.search("系统服务启动配置身份验证令牌", top_k=1)
-    )
-
-    assert matching in rerank_inputs
-    assert results == [matching]
+    assert fused == [shared, vector_only, keyword_only]
 
 
 def test_search_diversifies_results_by_source_and_section(retriever_module, monkeypatch):
