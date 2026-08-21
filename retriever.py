@@ -268,6 +268,7 @@ class AdvancedRetriever:
         parent_hits.sort(key=lambda item: item[1], reverse=True)
         final_docs = []
         for hit, rerank_score in parent_hits[:top_k]:
+            # 按照父记录精确查询全部子块
             final_docs.extend(self._expand_parent_record(vector_store, hit, rerank_score))
         return final_docs
 
