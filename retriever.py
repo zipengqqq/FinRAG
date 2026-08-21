@@ -184,6 +184,8 @@ class AdvancedRetriever:
         """执行向量召回、重排，并返回按父记录补全后的连续内容。"""
         vector_store = get_vector_store()
         filter_expr = self._build_filter_expr(source=source, filters=filters)
+
+        # 向量检索
         vector_docs = vector_store.similarity_search(
             query,
             k=VECTOR_CANDIDATE_COUNT,
@@ -193,6 +195,8 @@ class AdvancedRetriever:
                 "params": {"ef": max(64, VECTOR_CANDIDATE_COUNT)},
             },
         )
+
+        # 关键词检索
         try:
             keyword_docs = get_keyword_index().search(
                 query=query,
@@ -203,7 +207,11 @@ class AdvancedRetriever:
         except Exception as exc:
             logger.warning(f"关键词检索失败，已降级为仅向量检索: {exc}")
             keyword_docs = []
+
+        # 按 RRF 融合独立向量和关键词召回结果
         rerank_candidates = self._fuse_candidates(vector_docs, keyword_docs)
+
+        # 重排序
         reranked_docs = self.rerank(
             query, rerank_candidates, top_k=RERANK_CANDIDATE_COUNT
         )
