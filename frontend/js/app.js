@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const API_BASE = 'http://127.0.0.1:8288';
+    const API_BASE = 'http://127.0.0.1:18088';
     const md = (typeof window !== 'undefined' && window.markdownit)
         ? window.markdownit({
             html: false,

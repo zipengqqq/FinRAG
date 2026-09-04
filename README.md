@@ -123,10 +123,10 @@ python -m scripts.init_local_db
 启动 API：
 
 ```powershell
-python -m uvicorn main:app --host 127.0.0.1 --port 8288
+python -m uvicorn main:app --host 127.0.0.1 --port 18088
 ```
 
-服务启动后可访问 `http://127.0.0.1:8288/docs` 查看 OpenAPI 文档。
+服务启动后可访问 `http://127.0.0.1:18088/docs` 查看 OpenAPI 文档。
 
 ### 停止中间件
 

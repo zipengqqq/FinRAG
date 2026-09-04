@@ -97,5 +97,5 @@ async def search(req: SearchRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    # uvicorn.run("main:app", host="127.0.0.1", port=8288, reload=True)
-    uvicorn.run("main:app", host="127.0.0.1", port=8288)
+    # uvicorn.run("main:app", host="127.0.0.1", port=18088, reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=18088)
