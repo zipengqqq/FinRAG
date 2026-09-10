@@ -125,48 +125,57 @@ class KeywordIndex:
         if filters is not None and not isinstance(filters, dict):
             raise ValueError("filters 必须是字典")
 
-        fts_query = " AND ".join(f'"{token}"' for token in tokens)
+        # 二元切分必然切出跨词边界的噪声词元（如“的营”“入是”），要求全部命中会让
+        # 自然语言长查询恒定落空，因此改用 OR 召回，由 BM25 打分决定排序：命中越多、
+        # 命中的词元越稀有，得分越高。
+        fts_query = " OR ".join(f'"{token}"' for token in tokens)
+
+        # 过滤条件必须下推到 SQL，否则 LIMIT 会在过滤前截断，导致召回结果缺失。
+        conditions = ["keyword_fts MATCH ?"]
+        parameters = [fts_query]
+        if source is not None:
+            conditions.append("records.source = ?")
+            parameters.append(source)
+        for key, value in (filters or {}).items():
+            if not isinstance(key, str) or not key.isidentifier():
+                raise ValueError("filters 的字段名必须是 Python 标识符")
+            conditions.append("json_extract(records.metadata, ?) = ?")
+            parameters.extend([f"$.{key}", value])
+        parameters.append(top_k)
+
         connection = self._connect()
         try:
             rows = connection.execute(
-                """
+                f"""
                 SELECT records.text, records.source, records.section,
                        records.document_id, records.parent_id, records.chunk_index,
                        records.chunk_count, records.metadata
                 FROM keyword_fts
                 JOIN keyword_records AS records ON records.id = keyword_fts.rowid
-                WHERE keyword_fts MATCH ?
+                WHERE {" AND ".join(conditions)}
                 ORDER BY bm25(keyword_fts)
+                LIMIT ?
                 """,
-                (fts_query,),
+                parameters,
             ).fetchall()
         finally:
             connection.close()
 
-        documents = []
-        for row in rows:
-            metadata = json.loads(row[7])
-            if source is not None and row[1] != source:
-                continue
-            if filters and any(metadata.get(key) != value for key, value in filters.items()):
-                continue
-            documents.append(
-                Document(
-                    page_content=row[0],
-                    metadata={
-                        "source": row[1],
-                        "section": row[2],
-                        "document_id": row[3],
-                        "parent_id": row[4],
-                        "chunk_index": row[5],
-                        "chunk_count": row[6],
-                        "metadata": metadata,
-                    },
-                )
+        return [
+            Document(
+                page_content=row[0],
+                metadata={
+                    "source": row[1],
+                    "section": row[2],
+                    "document_id": row[3],
+                    "parent_id": row[4],
+                    "chunk_index": row[5],
+                    "chunk_count": row[6],
+                    "metadata": json.loads(row[7]),
+                },
             )
-            if len(documents) == top_k:
-                break
-        return documents
+            for row in rows
+        ]
 
 def get_keyword_index():
     """获取关键词索引单例。"""
