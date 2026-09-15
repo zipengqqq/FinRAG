@@ -3,3 +3,11 @@
 .env
 /output/
 /data/keyword_index.db
+
+# 临时与生成物
+.test-tmp/
+tmp/
+__pycache__/
+*.pyc
+/logs/
+.idea/
