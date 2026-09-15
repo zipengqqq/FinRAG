@@ -1,7 +1,10 @@
+import sqlite3
+
 import pytest
 from langchain_core.documents import Document
 
 from keyword_index import KeywordIndex
+from utils.logger_util import logger
 
 
 def _doc(text, parent_id, chunk_index, source="manual.md", metadata=None):
@@ -73,3 +76,84 @@ def test_search_rejects_non_identifier_filter_keys(tmp_path):
 
     with pytest.raises(ValueError):
         index.search("安装令牌", filters={"$.category": "guide"})
+
+
+def _noise_documents(count):
+    """构造一批只含高频词元“情况具体”的子块，用于把剪枝阈值顶到生效区间。"""
+    return [_doc("情况具体", f"parent-noise-{number}", 0) for number in range(count)]
+
+
+def test_search_prunes_tokens_that_appear_in_almost_every_chunk(tmp_path):
+    """几乎无处不在的词元区分度极低，会在 BM25 累加打分中淹没稀有的信号词元。"""
+    target = _doc("云辇系统", "parent-target", 0)
+    documents = _noise_documents(11) + [target]
+
+    pruned = KeywordIndex(tmp_path / "pruned.db")
+    pruned.upsert_documents(documents)
+    assert pruned.search("云辇系统情况", top_k=40) == [target]
+
+    unpruned = KeywordIndex(tmp_path / "unpruned.db", max_document_ratio=None)
+    unpruned.upsert_documents(documents)
+    assert len(unpruned.search("云辇系统情况", top_k=40)) == 12
+
+
+def test_search_keeps_results_when_every_query_token_is_frequent(tmp_path):
+    """整条查询都由高频词元组成时不能剪空，否则召回会退化成恒为零。"""
+    index = KeywordIndex(tmp_path / "keyword.db")
+    index.upsert_documents(_noise_documents(11))
+
+    assert len(index.search("情况具体", top_k=40)) == 11
+
+
+def test_repeated_overwrite_does_not_inflate_document_frequency(tmp_path):
+    """覆盖写入必须先撤销旧文本的文档频率，否则反复覆盖会把稀有词元挤成高频词元。"""
+    index = KeywordIndex(tmp_path / "keyword.db")
+    index.upsert_documents(_noise_documents(11))
+    target = _doc("云辇系统", "parent-target", 0)
+    for _ in range(11):
+        index.upsert_documents([_doc("情况具体", "parent-target", 0)])
+        index.upsert_documents([target])
+
+    assert index.search("云辇系统情况", top_k=40) == [target]
+
+
+def test_search_warns_when_document_frequency_statistics_are_missing(tmp_path):
+    """索引若建于引入剪枝之前，统计表为空会让剪枝静默失效，必须告警而不是默默降级。"""
+    path = tmp_path / "keyword.db"
+    index = KeywordIndex(path)
+    index.upsert_documents(_noise_documents(11) + [_doc("云辇系统", "parent-target", 0)])
+
+    connection = sqlite3.connect(path)
+    with connection:
+        connection.execute("DELETE FROM keyword_token_stats")
+    connection.close()
+
+    messages = []
+    sink = logger.add(
+        lambda message: messages.append(message.record["message"]), level="WARNING"
+    )
+    try:
+        reopened = KeywordIndex(path)
+        assert len(reopened.search("云辇系统情况", top_k=40)) == 12
+    finally:
+        logger.remove(sink)
+
+    assert any("剪枝" in message for message in messages)
+
+
+def test_rebuild_token_statistics_restores_pruning(tmp_path):
+    """补齐统计后，历史索引上的剪枝应当重新生效。"""
+    path = tmp_path / "keyword.db"
+    target = _doc("云辇系统", "parent-target", 0)
+    KeywordIndex(path).upsert_documents(_noise_documents(11) + [target])
+
+    connection = sqlite3.connect(path)
+    with connection:
+        connection.execute("DELETE FROM keyword_token_stats")
+    connection.close()
+
+    reopened = KeywordIndex(path)
+    assert len(reopened.search("云辇系统情况", top_k=40)) == 12
+
+    assert reopened.rebuild_token_statistics() > 0
+    assert reopened.search("云辇系统情况", top_k=40) == [target]

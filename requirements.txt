@@ -27,3 +27,4 @@ pymysql~=1.1.1
 langchain-milvus~=0.1.10
 pytest~=8.3.5
 PyYAML~=6.0.3
+jieba~=0.42.1
